@@ -16,11 +16,20 @@ interface ScoreViewerProps {
   musicXml: string;
   /** 初始配置 */
   initialConfig?: Partial<OsmdConfig>;
+  /** 是否启用三色锚线模式 */
+  anchorMode?: boolean;
+  /** 是否正在播放 */
+  isPlaying?: boolean;
+  /** 当前小节 */
+  currentMeasure?: number;
 }
 
 export default function ScoreViewer({
   musicXml,
   initialConfig,
+  anchorMode = true,
+  isPlaying = false,
+  currentMeasure = 1,
 }: ScoreViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
