@@ -8,10 +8,10 @@ import { PracticeStats } from "@/components/PracticeStats";
 import { useMIDI } from "@/hooks/useMIDI";
 import { midiToNoteName, calculateAccuracy } from "@/lib/note-matching";
 import type { MIDINoteEvent } from "@/hooks/useMIDI";
-import beyerNo1 from "@/lib/scores/beyer-no1";
+import { beyerNo1Xml } from "@/lib/scores/beyer-no1";
 
 const SAMPLE_SCORES = [
-  { id: "beyer-1", name: "拜厄 No.1", content: beyerNo1 },
+  { id: "beyer-1", name: "拜厄 No.1", content: beyerNo1Xml },
 ];
 
 export default function Home() {

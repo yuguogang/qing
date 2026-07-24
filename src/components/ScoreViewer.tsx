@@ -42,6 +42,8 @@ export default function ScoreViewer({
 
   // 初始化 OSMD 并加载乐谱
   useEffect(() => {
+    // 确保在浏览器环境中运行
+    if (typeof window === 'undefined') return;
     if (!containerRef.current || !musicXml) return;
 
     let cancelled = false;
@@ -50,6 +52,11 @@ export default function ScoreViewer({
       try {
         setLoading(true);
         setError(null);
+
+        console.log('[ScoreViewer] Initializing OSMD...');
+
+        // 等待 DOM 完全就绪
+        await new Promise(resolve => setTimeout(resolve, 100));
 
         // 清理旧实例
         if (osmdRef.current) {
@@ -65,8 +72,12 @@ export default function ScoreViewer({
         const osmd = createOsmdInstance(container, config);
         osmdRef.current = osmd;
 
+        console.log('[ScoreViewer] OSMD instance created, loading MusicXML...');
+
         // 加载并渲染
         await loadAndRender(osmd, musicXml);
+
+        console.log('[ScoreViewer] MusicXML loaded and rendered');
 
         if (cancelled) return;
 
@@ -76,12 +87,14 @@ export default function ScoreViewer({
           requestAnimationFrame(() => {
             if (containerRef.current) {
               applyAnchorColors(containerRef.current, config);
+              console.log('[ScoreViewer] Anchor colors applied');
             }
           });
         }
 
         setLoading(false);
       } catch (err) {
+        console.error('[ScoreViewer] Error:', err);
         if (cancelled) return;
         setError(err instanceof Error ? err.message : '乐谱加载失败');
         setLoading(false);
@@ -171,7 +184,7 @@ export default function ScoreViewer({
       </div>
 
       {/* 乐谱显示区域 */}
-      <div className="flex-1 overflow-auto bg-gray-50 p-4">
+      <div className="flex-1 overflow-auto bg-gray-50 p-4" style={{ minHeight: '500px' }}>
         {loading && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -192,8 +205,8 @@ export default function ScoreViewer({
 
         <div
           ref={containerRef}
-          className="w-full min-h-full"
-          style={{ display: loading || error ? 'none' : 'block' }}
+          className="w-full"
+          style={{ display: loading || error ? 'none' : 'block', minHeight: '400px' }}
         />
       </div>
     </div>
