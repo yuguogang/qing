@@ -1,0 +1,192 @@
+'use client';
+
+import { useEffect, useRef, useState, useCallback } from 'react';
+import {
+  createOsmdInstance,
+  loadAndRender,
+  applyAnchorColors,
+  setZoom,
+  type OsmdConfig,
+  DEFAULT_CONFIG,
+} from '@/lib/osmd-utils';
+import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+
+interface ScoreViewerProps {
+  /** MusicXML 内容 */
+  musicXml: string;
+  /** 初始配置 */
+  initialConfig?: Partial<OsmdConfig>;
+}
+
+export default function ScoreViewer({
+  musicXml,
+  initialConfig,
+}: ScoreViewerProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
+  const [config, setConfig] = useState<OsmdConfig>({
+    ...DEFAULT_CONFIG,
+    ...initialConfig,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // 初始化 OSMD 并加载乐谱
+  useEffect(() => {
+    if (!containerRef.current || !musicXml) return;
+
+    let cancelled = false;
+
+    async function init() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // 清理旧实例
+        if (osmdRef.current) {
+          osmdRef.current = null;
+        }
+
+        // 清空容器
+        const container = containerRef.current;
+        if (!container) return;
+        container.innerHTML = '';
+
+        // 创建 OSMD 实例
+        const osmd = createOsmdInstance(container, config);
+        osmdRef.current = osmd;
+
+        // 加载并渲染
+        await loadAndRender(osmd, musicXml);
+
+        if (cancelled) return;
+
+        // 应用三色锚线
+        if (config.anchorMode && containerRef.current) {
+          // 等待 SVG 渲染完成
+          requestAnimationFrame(() => {
+            if (containerRef.current) {
+              applyAnchorColors(containerRef.current, config);
+            }
+          });
+        }
+
+        setLoading(false);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : '乐谱加载失败');
+        setLoading(false);
+      }
+    }
+
+    init();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [musicXml, config.anchorMode]);
+
+  // 缩放处理
+  const handleZoomChange = useCallback(
+    (newZoom: number) => {
+      setConfig((prev) => ({ ...prev, zoom: newZoom }));
+      if (osmdRef.current) {
+        setZoom(osmdRef.current, newZoom);
+      }
+    },
+    [],
+  );
+
+  // 锚线模式切换
+  const handleAnchorToggle = useCallback(() => {
+    setConfig((prev) => {
+      const newConfig = { ...prev, anchorMode: !prev.anchorMode };
+      if (containerRef.current) {
+        // 重新渲染以应用/移除锚线颜色
+        const svg = containerRef.current.querySelector('svg');
+        if (svg) {
+          if (newConfig.anchorMode) {
+            applyAnchorColors(containerRef.current, newConfig);
+          } else {
+            // 移除所有锚线颜色，恢复默认
+            const lines = svg.querySelectorAll('line, path');
+            lines.forEach((line) => {
+              const el = line as SVGElement;
+              el.removeAttribute('stroke');
+              el.removeAttribute('stroke-width');
+            });
+          }
+        }
+      }
+      return newConfig;
+    });
+  }, []);
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* 工具栏 */}
+      <div className="flex items-center gap-4 px-4 py-2 bg-white border-b border-gray-200 shadow-sm">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-700">三色锚线</span>
+          <button
+            onClick={handleAnchorToggle}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              config.anchorMode ? 'bg-red-500' : 'bg-gray-300'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                config.anchorMode ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+
+        <div className="h-6 w-px bg-gray-300" />
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-700">缩放</span>
+          <input
+            type="range"
+            min="0.5"
+            max="2"
+            step="0.1"
+            value={config.zoom}
+            onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
+            className="w-32"
+          />
+          <span className="text-sm text-gray-500 w-12">
+            {Math.round(config.zoom * 100)}%
+          </span>
+        </div>
+      </div>
+
+      {/* 乐谱显示区域 */}
+      <div className="flex-1 overflow-auto bg-gray-50 p-4">
+        {loading && (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500 mx-auto mb-2" />
+              <p className="text-sm text-gray-500">正在加载乐谱...</p>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center text-red-500">
+              <p className="text-lg font-medium">加载失败</p>
+              <p className="text-sm mt-1">{error}</p>
+            </div>
+          </div>
+        )}
+
+        <div
+          ref={containerRef}
+          className="w-full min-h-full"
+          style={{ display: loading || error ? 'none' : 'block' }}
+        />
+      </div>
+    </div>
+  );
+}
