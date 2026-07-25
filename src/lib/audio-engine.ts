@@ -46,43 +46,51 @@ export class PianoAudioEngine {
     const now = ctx.currentTime;
     const frequency = midiToFrequency(midi);
 
-    // 钢琴音色 = 基波 + 谐波（2 次、3 次、4 次）
+    // 钢琴音色 = 基波 + 谐波（更自然的钢琴谐波结构）
     const harmonics = [
-      { ratio: 1, gain: 1.0 },      // 基波
-      { ratio: 2, gain: 0.5 },      // 2 次谐波
-      { ratio: 3, gain: 0.25 },     // 3 次谐波
-      { ratio: 4, gain: 0.125 },    // 4 次谐波
+      { ratio: 1, gain: 1.0, type: 'sine' as const },      // 基波
+      { ratio: 2, gain: 0.4, type: 'sine' as const },      // 2 次谐波（八度）
+      { ratio: 3, gain: 0.15, type: 'sine' as const },     // 3 次谐波（五度）
+      { ratio: 4, gain: 0.08, type: 'sine' as const },     // 4 次谐波（双八度）
+      { ratio: 5, gain: 0.04, type: 'sine' as const },     // 5 次谐波（大三度）
+      { ratio: 6, gain: 0.02, type: 'sine' as const },     // 6 次谐波
     ];
 
     const noteGain = ctx.createGain();
     noteGain.connect(this.masterGain);
 
-    // ADSR 包络
-    const attack = 0.005;
-    const decay = 0.1;
-    const sustain = 0.4;
-    const release = Math.min(0.3, duration * 0.3);
+    // ADSR 包络（更接近真实钢琴）
+    const attack = 0.002;  // 快速起音
+    const decay = 0.15;    // 衰减
+    const sustain = 0.3;   // 延音（较低）
+    const release = Math.min(0.5, duration * 0.4);
 
     noteGain.gain.setValueAtTime(0, now);
-    noteGain.gain.linearRampToValueAtTime(velocity, now + attack);
-    noteGain.gain.linearRampToValueAtTime(sustain * velocity, now + attack + decay);
-    noteGain.gain.setValueAtTime(sustain * velocity, now + duration - release);
-    noteGain.gain.linearRampToValueAtTime(0, now + duration);
+    noteGain.gain.linearRampToValueAtTime(velocity * 0.6, now + attack); // 降低整体音量
+    noteGain.gain.exponentialRampToValueAtTime(sustain * velocity * 0.6, now + attack + decay);
+    noteGain.gain.setValueAtTime(sustain * velocity * 0.6, now + duration - release);
+    noteGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
     // 添加谐波
-    harmonics.forEach(({ ratio, gain }) => {
+    harmonics.forEach(({ ratio, gain, type }) => {
       const osc = ctx.createOscillator();
-      osc.type = 'sine';
+      osc.type = type;
       osc.frequency.value = frequency * ratio;
 
       const harmonicGain = ctx.createGain();
-      harmonicGain.gain.value = gain * 0.3; // 降低谐波音量
+      harmonicGain.gain.value = gain * 0.25; // 降低谐波音量
+
+      // 高频谐波快速衰减（模拟真实钢琴）
+      if (ratio >= 4) {
+        harmonicGain.gain.setValueAtTime(gain * 0.25, now);
+        harmonicGain.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.5);
+      }
 
       osc.connect(harmonicGain);
       harmonicGain.connect(noteGain);
 
       osc.start(now);
-      osc.stop(now + duration);
+      osc.stop(now + duration + 0.1);
     });
   }
 
