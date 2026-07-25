@@ -155,9 +155,9 @@ export function applyAnchorColors(
       lines[4].bbox.y - lines[3].bbox.y,
     ];
     
-    // 检查间距是否大致相等（允许 30% 误差）
+    // 检查间距是否大致相等（允许 50% 误差，更宽松）
     const avgSpacing = spacings.reduce((a, b) => a + b, 0) / 4;
-    const isUniform = spacings.every(s => Math.abs(s - avgSpacing) < avgSpacing * 0.3);
+    const isUniform = spacings.every(s => Math.abs(s - avgSpacing) < avgSpacing * 0.5);
     
     console.log('[Anchor] Checking lines at Y:', lines.map(l => l.bbox.y), 'spacings:', spacings, 'avg:', avgSpacing, 'uniform:', isUniform);
     
