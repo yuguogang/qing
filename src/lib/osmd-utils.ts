@@ -139,8 +139,8 @@ export function applyAnchorColors(
     console.log(`[Anchor] Line ${i}: tag=${item.tag}, y=${item.bbox.y}, height=${item.bbox.height}, width=${item.bbox.width}`);
   });
 
-  // 按 Y 坐标排序
-  horizontalLines.sort((a, b) => a.bbox.y - b.bbox.y);
+  // 按宽度降序排序（五线谱线条应该是最长的）
+  horizontalLines.sort((a, b) => b.bbox.width - a.bbox.width);
 
   // 找到五线谱的 5 条主线（连续的 5 条线）
   // 五线谱的 5 条线应该是等间距的
