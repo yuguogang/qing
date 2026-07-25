@@ -1,9 +1,10 @@
 /**
  * 练琴模式控制器
- * 管理光标移动、节拍检测、练习统计
+ * 使用 OSMD 内置 Cursor API 驱动光标，按节拍精确移动
  */
 
 import { type PianoNote } from './audio-engine';
+import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 
 // 节拍判定等级
 export type TimingGrade = 'perfect' | 'good' | 'miss';
@@ -27,87 +28,112 @@ const TIMING_THRESHOLDS = {
 };
 
 // 练习模式
-export type PracticeMode = 'follow' | 'sight'; // 跟弹模式 / 视奏模式
+export type PracticeMode = 'follow' | 'sight';
+
+// 音符事件（按时间排列，用于驱动光标）
+interface NoteEvent {
+  midi: number;
+  startTime: number;  // 秒
+  duration: number;   // 秒
+  cursorStep: number; // 对应的 cursor.next() 步骤序号
+}
 
 // 音符判定状态
 interface NoteJudgment {
-  note: PianoNote;
+  event: NoteEvent;
   expectedTime: number; // 期望按下时间（ms）
-  actualTime?: number;  // 实际按下时间（ms）
-  grade?: TimingGrade;  // 判定等级
-  judged: boolean;      // 是否已判定
-}
-
-// 练习控制器状态
-export interface PracticeState {
-  isPlaying: boolean;
-  currentTime: number;      // 当前播放时间（ms）
-  currentNoteIndex: number; // 当前音符索引
-  stats: PracticeStats;
-  mode: PracticeMode;
-  bpm: number;
+  actualTime?: number;
+  grade?: TimingGrade;
+  judged: boolean;
 }
 
 // 事件回调
 export interface PracticeCallbacks {
-  onNoteHit?: (note: PianoNote, grade: TimingGrade, delta: number) => void;
-  onNoteMiss?: (note: PianoNote) => void;
-  onProgress?: (currentTime: number, currentNoteIndex: number) => void;
+  onNoteHit?: (midi: number, grade: TimingGrade, delta: number) => void;
+  onNoteMiss?: (midi: number) => void;
+  onCursorStep?: (step: number) => void;  // 光标步骤变化
   onComplete?: (stats: PracticeStats) => void;
-  onTimingCheck?: (grade: TimingGrade) => void; // 节奏偏差提示
+  onTimingCheck?: (grade: TimingGrade) => void;
 }
 
 export class PracticeController {
-  private notes: PianoNote[] = [];
-  private state: PracticeState;
-  private callbacks: PracticeCallbacks = {};
-  private animationFrameId: number | null = null;
-  private startTime: number = 0;
+  private osmd: OpenSheetMusicDisplay | null = null;
+  private noteEvents: NoteEvent[] = [];
   private judgments: NoteJudgment[] = [];
+  private callbacks: PracticeCallbacks = {};
   private audioContext: AudioContext | null = null;
 
+  // 播放状态
+  private isPlaying = false;
+  private isPaused = false;
+  private startTime = 0;
+  private currentTime = 0;
+  private currentCursorStep = 0;
+  private lastCursorStep = -1;
+  private animationFrameId: number | null = null;
+  private accompanimentTimeouts: number[] = [];
+
+  // 统计
+  private stats: PracticeStats = {
+    totalNotes: 0,
+    hitNotes: 0,
+    perfectCount: 0,
+    goodCount: 0,
+    missCount: 0,
+    combo: 0,
+    maxCombo: 0,
+    accuracy: 0,
+  };
+
+  private bpm: number;
+  private mode: PracticeMode;
+
   constructor(mode: PracticeMode = 'follow', bpm: number = 80) {
-    this.state = {
-      isPlaying: false,
-      currentTime: 0,
-      currentNoteIndex: 0,
-      stats: {
-        totalNotes: 0,
-        hitNotes: 0,
-        perfectCount: 0,
-        goodCount: 0,
-        missCount: 0,
-        combo: 0,
-        maxCombo: 0,
-        accuracy: 0,
-      },
-      mode,
-      bpm,
-    };
+    this.mode = mode;
+    this.bpm = bpm;
   }
 
-  // 设置音频上下文（用于提示音）
+  // 设置 OSMD 实例
+  setOSMD(osmd: OpenSheetMusicDisplay) {
+    this.osmd = osmd;
+  }
+
+  // 设置音频上下文
   setAudioContext(ctx: AudioContext) {
     this.audioContext = ctx;
   }
 
-  // 计算时间缩放因子（基于 BPM）
-  private getTimeScale(): number {
-    const originalBpm = 80; // MusicXML 解析时的基准 BPM
-    return originalBpm / this.state.bpm;
-  }
-
-  // 加载音符序列
+  // 加载音符序列（来自 MusicXML 解析）
   loadNotes(notes: PianoNote[]) {
-    this.notes = [...notes].sort((a, b) => a.startTime - b.startTime);
-    const timeScale = this.getTimeScale();
+    const sorted = [...notes].sort((a, b) => a.startTime - b.startTime);
     
-    this.judgments = this.notes.map(note => ({
-      note,
-      expectedTime: note.startTime * 1000 * timeScale, // 转换为 ms，考虑 BPM
+    // 为每个音符分配 cursor 步骤
+    // OSMD cursor 按时间步进，每个"时间步"可能包含多个同时发声的音符
+    // 我们将同时发声的音符归为一步
+    let step = 0;
+    let lastStartTime = -1;
+    
+    this.noteEvents = sorted.map(note => {
+      if (note.startTime !== lastStartTime) {
+        step++;
+        lastStartTime = note.startTime;
+      }
+      return {
+        midi: note.midi,
+        startTime: note.startTime,
+        duration: note.duration,
+        cursorStep: step,
+      };
+    });
+
+    // 初始化判定
+    this.judgments = this.noteEvents.map(event => ({
+      event,
+      expectedTime: event.startTime * 1000, // ms
       judged: false,
     }));
-    this.state.stats.totalNotes = this.notes.length;
+
+    this.stats.totalNotes = this.noteEvents.length;
   }
 
   // 设置回调
@@ -115,18 +141,32 @@ export class PracticeController {
     this.callbacks = callbacks;
   }
 
+  // 获取光标总步骤数
+  private calcTotalCursorSteps(): number {
+    if (this.noteEvents.length === 0) return 0;
+    return this.noteEvents[this.noteEvents.length - 1].cursorStep;
+  }
+
   // 开始练习
   start() {
-    if (this.notes.length === 0) return;
+    if (this.noteEvents.length === 0) return;
 
-    this.state.isPlaying = true;
+    // 初始化 OSMD 光标
+    if (this.osmd?.cursor) {
+      this.osmd.cursor.reset();
+      this.osmd.cursor.show();
+    }
+
+    this.isPlaying = true;
+    this.isPaused = false;
     this.startTime = performance.now();
-    this.state.currentTime = 0;
-    this.state.currentNoteIndex = 0;
-    
+    this.currentTime = 0;
+    this.currentCursorStep = 0;
+    this.lastCursorStep = -1;
+
     // 重置统计
-    this.state.stats = {
-      totalNotes: this.notes.length,
+    this.stats = {
+      totalNotes: this.noteEvents.length,
       hitNotes: 0,
       perfectCount: 0,
       goodCount: 0,
@@ -136,59 +176,96 @@ export class PracticeController {
       accuracy: 0,
     };
 
-    // 重置判定状态
+    // 重置判定
     this.judgments.forEach(j => {
       j.judged = false;
       j.actualTime = undefined;
       j.grade = undefined;
     });
 
+    // 跟弹模式：播放伴奏
+    if (this.mode === 'follow') {
+      this.playAccompaniment();
+    }
+
     this.tick();
   }
 
   // 停止练习
   stop() {
-    this.state.isPlaying = false;
+    this.isPlaying = false;
+    this.isPaused = false;
+    this.stopAccompaniment();
+    
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
     }
-    this.callbacks.onComplete?.(this.state.stats);
+
+    // 隐藏光标
+    if (this.osmd?.cursor) {
+      this.osmd.cursor.hide();
+    }
+
+    this.callbacks.onComplete?.(this.stats);
   }
 
   // 暂停/继续
   pause() {
-    this.state.isPlaying = !this.state.isPlaying;
-    if (this.state.isPlaying) {
-      this.startTime = performance.now() - this.state.currentTime;
+    if (!this.isPlaying) return;
+    
+    this.isPaused = !this.isPaused;
+    if (this.isPaused) {
+      // 暂停
+      this.stopAccompaniment();
+      if (this.animationFrameId !== null) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+      }
+    } else {
+      // 继续
+      this.startTime = performance.now() - this.currentTime;
+      if (this.mode === 'follow') {
+        this.playAccompanimentFrom(this.currentTime / 1000);
+      }
       this.tick();
-    } else if (this.animationFrameId !== null) {
-      cancelAnimationFrame(this.animationFrameId);
-      this.animationFrameId = null;
     }
+  }
+
+  // 播放伴奏（从开头）
+  private playAccompaniment() {
+    this.playAccompanimentFrom(0);
+  }
+
+  // 从指定时间播放伴奏
+  private playAccompanimentFrom(fromTime: number) {
+    this.stopAccompaniment();
+    
+    // 这里简化处理：伴奏由外部控制
+    // PracticeController 只负责光标和判定
+  }
+
+  // 停止伴奏
+  private stopAccompaniment() {
+    this.accompanimentTimeouts.forEach(id => clearTimeout(id));
+    this.accompanimentTimeouts = [];
   }
 
   // 主循环
   private tick = () => {
-    if (!this.state.isPlaying) return;
+    if (!this.isPlaying || this.isPaused) return;
 
     const now = performance.now();
-    this.state.currentTime = now - this.startTime;
+    this.currentTime = now - this.startTime;
 
-    // 更新当前音符索引
-    this.updateCurrentNoteIndex();
+    // 根据当前时间确定光标应该在哪个步骤
+    this.updateCursorPosition();
 
     // 检查错过的音符
     this.checkMissedNotes();
 
-    // 触发进度回调
-    this.callbacks.onProgress?.(
-      this.state.currentTime,
-      this.state.currentNoteIndex
-    );
-
     // 检查是否完成
-    if (this.state.currentNoteIndex >= this.notes.length) {
+    if (this.currentCursorStep > this.getTotalCursorSteps()) {
       this.stop();
       return;
     }
@@ -196,21 +273,34 @@ export class PracticeController {
     this.animationFrameId = requestAnimationFrame(this.tick);
   };
 
-  // 更新当前音符索引
-  private updateCurrentNoteIndex() {
-    const timeScale = this.getTimeScale();
-    const currentTimeSec = this.state.currentTime / 1000;
-    
-    // 找到当前应该演奏的音符（考虑 BPM 缩放）
-    for (let i = this.state.currentNoteIndex; i < this.notes.length; i++) {
-      const note = this.notes[i];
-      const noteStartTime = note.startTime * timeScale;
-      // 如果当前时间已经超过了音符的开始时间，更新索引
-      if (currentTimeSec >= noteStartTime) {
-        this.state.currentNoteIndex = i + 1;
+  // 更新光标位置（基于时间驱动 OSMD cursor）
+  private updateCursorPosition() {
+    const currentTimeSec = this.currentTime / 1000;
+
+    // 找到当前时间对应的 cursor 步骤
+    let targetStep = 0;
+    for (let i = 0; i < this.noteEvents.length; i++) {
+      if (currentTimeSec >= this.noteEvents[i].startTime) {
+        targetStep = this.noteEvents[i].cursorStep;
       } else {
         break;
       }
+    }
+
+    // 如果光标步骤变化了，调用 OSMD cursor.next()
+    if (targetStep > this.lastCursorStep && this.osmd?.cursor) {
+      const stepsToAdvance = targetStep - this.lastCursorStep;
+      for (let i = 0; i < stepsToAdvance; i++) {
+        try {
+          this.osmd.cursor.next();
+        } catch {
+          // cursor 可能已经到达末尾
+          break;
+        }
+      }
+      this.lastCursorStep = targetStep;
+      this.currentCursorStep = targetStep;
+      this.callbacks.onCursorStep?.(targetStep);
     }
   }
 
@@ -218,30 +308,26 @@ export class PracticeController {
   private checkMissedNotes() {
     const window = 500; // 500ms 后标记为错过
 
-    for (let i = 0; i < this.judgments.length; i++) {
-      const judgment = this.judgments[i];
+    for (const judgment of this.judgments) {
       if (judgment.judged) continue;
 
-      const delta = this.state.currentTime - judgment.expectedTime;
-      
-      // 超过判定窗口，标记为错过
+      const delta = this.currentTime - judgment.expectedTime;
       if (delta > TIMING_THRESHOLDS.good + window) {
         judgment.judged = true;
         judgment.grade = 'miss';
-        this.state.stats.missCount++;
-        this.state.stats.combo = 0;
+        this.stats.missCount++;
+        this.stats.combo = 0;
         this.updateAccuracy();
-        this.callbacks.onNoteMiss?.(judgment.note);
+        this.callbacks.onNoteMiss?.(judgment.event.midi);
       }
     }
   }
 
   // 用户按键输入
   handleKeyPress(midiNote: number): TimingGrade | null {
-    if (!this.state.isPlaying) return null;
+    if (!this.isPlaying || this.isPaused) return null;
 
-    // 找到当前时间附近的待判定音符
-    const currentTime = this.state.currentTime;
+    const currentTime = this.currentTime;
     const judgment = this.findJudgmentForNote(midiNote, currentTime);
 
     if (!judgment || judgment.judged) return null;
@@ -252,21 +338,18 @@ export class PracticeController {
     let grade: TimingGrade;
     if (absDelta <= TIMING_THRESHOLDS.perfect) {
       grade = 'perfect';
-      this.state.stats.perfectCount++;
-      this.state.stats.combo++;
+      this.stats.perfectCount++;
+      this.stats.combo++;
     } else if (absDelta <= TIMING_THRESHOLDS.good) {
       grade = 'good';
-      this.state.stats.goodCount++;
-      this.state.stats.combo++;
-      // 良好判定但有偏差，触发提示音
+      this.stats.goodCount++;
+      this.stats.combo++;
       this.playTimingHint();
       this.callbacks.onTimingCheck?.(grade);
     } else {
-      // 偏差太大，视为错过
       grade = 'miss';
-      this.state.stats.missCount++;
-      this.state.stats.combo = 0;
-      // 严重偏差，触发提示音
+      this.stats.missCount++;
+      this.stats.combo = 0;
       this.playTimingHint();
       this.callbacks.onTimingCheck?.(grade);
     }
@@ -274,29 +357,28 @@ export class PracticeController {
     judgment.judged = true;
     judgment.actualTime = currentTime;
     judgment.grade = grade;
-    this.state.stats.hitNotes++;
+    this.stats.hitNotes++;
 
-    if (this.state.stats.combo > this.state.stats.maxCombo) {
-      this.state.stats.maxCombo = this.state.stats.combo;
+    if (this.stats.combo > this.stats.maxCombo) {
+      this.stats.maxCombo = this.stats.combo;
     }
 
     this.updateAccuracy();
-    this.callbacks.onNoteHit?.(judgment.note, grade, delta);
+    this.callbacks.onNoteHit?.(judgment.event.midi, grade, delta);
 
     return grade;
   }
 
   // 找到对应的判定对象
   private findJudgmentForNote(midiNote: number, currentTime: number): NoteJudgment | null {
-    // 在判定窗口内查找匹配的音符
     const window = TIMING_THRESHOLDS.good;
 
     for (const judgment of this.judgments) {
       if (judgment.judged) continue;
-      if (judgment.note.midi !== midiNote) continue;
+      if (judgment.event.midi !== midiNote) continue;
 
       const delta = Math.abs(currentTime - judgment.expectedTime);
-      if (delta <= window + 200) { // 额外缓冲 200ms
+      if (delta <= window + 200) {
         return judgment;
       }
     }
@@ -304,7 +386,7 @@ export class PracticeController {
     return null;
   }
 
-  // 播放节奏提示音（"叮"）
+  // 播放节奏提示音
   private playTimingHint() {
     if (!this.audioContext) return;
 
@@ -314,7 +396,6 @@ export class PracticeController {
     oscillator.connect(gainNode);
     gainNode.connect(this.audioContext.destination);
 
-    // 高音频的"叮"声
     oscillator.frequency.setValueAtTime(1200, this.audioContext.currentTime);
     oscillator.type = 'sine';
 
@@ -327,49 +408,40 @@ export class PracticeController {
 
   // 更新准确率
   private updateAccuracy() {
-    const { hitNotes, totalNotes } = this.state.stats;
+    const { totalNotes } = this.stats;
     if (totalNotes === 0) {
-      this.state.stats.accuracy = 0;
+      this.stats.accuracy = 0;
       return;
     }
 
-    // 准确率计算：完美 100%，良好 70%，错过 0%
-    const perfectWeight = this.state.stats.perfectCount * 1.0;
-    const goodWeight = this.state.stats.goodCount * 0.7;
+    const perfectWeight = this.stats.perfectCount * 1.0;
+    const goodWeight = this.stats.goodCount * 0.7;
     const totalWeight = perfectWeight + goodWeight;
-    
-    this.state.stats.accuracy = Math.round((totalWeight / totalNotes) * 100);
+    this.stats.accuracy = Math.round((totalWeight / totalNotes) * 100);
   }
 
   // 获取当前状态
-  getState(): PracticeState {
-    return { ...this.state };
+  getStats(): PracticeStats {
+    return { ...this.stats };
   }
 
-  // 获取当前应该演奏的音符（用于光标显示）
-  getCurrentNote(): PianoNote | null {
-    if (this.state.currentNoteIndex >= this.notes.length) return null;
-    return this.notes[this.state.currentNoteIndex];
+  getIsPlaying(): boolean {
+    return this.isPlaying;
   }
 
-  // 获取光标进度（0-1）
-  getCursorProgress(): number {
-    if (this.notes.length === 0) return 0;
-    
-    const timeScale = this.getTimeScale();
-    const totalDuration = (this.notes[this.notes.length - 1].startTime + 
-                          this.notes[this.notes.length - 1].duration) * timeScale;
-    const currentTimeSec = this.state.currentTime / 1000;
-    
-    return Math.min(currentTimeSec / totalDuration, 1);
+  getIsPaused(): boolean {
+    return this.isPaused;
   }
 
-  // 获取当前小节（简化计算，假设每小节4拍）
-  getCurrentMeasure(): number {
-    const beatsPerMeasure = 4;
-    const beatDuration = 60 / this.state.bpm;
-    const currentTimeSec = this.state.currentTime / 1000;
-    const currentBeat = currentTimeSec / beatDuration;
-    return Math.floor(currentBeat / beatsPerMeasure) + 1;
+  getCurrentTime(): number {
+    return this.currentTime;
+  }
+
+  getCurrentCursorStep(): number {
+    return this.currentCursorStep;
+  }
+
+  getTotalCursorSteps(): number {
+    return this.calcTotalCursorSteps();
   }
 }

@@ -17,6 +17,7 @@ import { PianoAudioEngine, type PianoNote } from "@/lib/audio-engine";
 import { parseMusicXMLNotes } from "@/lib/musicxml-parser";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 
 const SAMPLE_SCORES = [
   { id: "beyer-1", name: "拜厄 No.1", content: beyerNo1Xml },
@@ -55,7 +56,6 @@ export default function Home() {
     setParsedNotes(notes);
     // 计算总小节数（从解析的音符中获取最大小节号）
     if (notes.length > 0) {
-      // 简单估算：每 4 个音符为 1 小节
       const estimatedMeasures = Math.ceil(notes.length / 4);
       setTotalMeasures(estimatedMeasures);
     }
@@ -66,6 +66,7 @@ export default function Home() {
   
   const {
     state: practiceState,
+    setOSMD,
     loadNotes,
     start,
     stop,
@@ -85,6 +86,12 @@ export default function Home() {
       loadNotes(parsedNotes);
     }
   }, [parsedNotes, loadNotes]);
+
+  // OSMD 实例准备就绪的回调
+  const handleOsmdReady = useCallback((osmd: OpenSheetMusicDisplay) => {
+    console.log('[Home] OSMD ready, setting to practice controller');
+    setOSMD(osmd);
+  }, [setOSMD]);
 
   // 跟踪伴奏定时器
   const accompanimentTimeoutsRef = useRef<number[]>([]);
@@ -114,21 +121,17 @@ export default function Home() {
 
   // 停止伴奏
   const stopAccompaniment = useCallback(() => {
-    // 清除所有定时器
     accompanimentTimeoutsRef.current.forEach(id => clearTimeout(id));
     accompanimentTimeoutsRef.current = [];
-    // 停止音频引擎
     audioEngineRef.current?.stop();
   }, []);
 
   // 处理播放/暂停
   const handlePlayPause = useCallback(() => {
     if (practiceState.isPlaying) {
-      // 暂停时停止伴奏
       stopAccompaniment();
       pause();
     } else {
-      // 跟弹模式播放伴奏
       if (practiceMode === 'follow') {
         playAccompaniment();
       }
@@ -153,7 +156,6 @@ export default function Home() {
   const handleModeChange = useCallback((value: string) => {
     if (value) {
       setPracticeMode(value as PracticeMode);
-      // 如果正在练习，重置
       if (practiceState.isPlaying) {
         reset();
       }
@@ -204,8 +206,8 @@ export default function Home() {
   }, [handleNotePlay]);
 
   // 获取当前应弹奏的音符（用于虚拟键盘高亮）
-  const currentNote = practiceState.currentNoteIndex < parsedNotes.length
-    ? parsedNotes[practiceState.currentNoteIndex]
+  const currentNote = practiceState.currentCursorStep < parsedNotes.length
+    ? parsedNotes[practiceState.currentCursorStep]
     : null;
 
   return (
@@ -291,9 +293,10 @@ export default function Home() {
                   musicXml={selectedScore.content}
                   anchorMode={anchorMode}
                   isPlaying={practiceState.isPlaying}
-                  cursorProgress={practiceState.cursorProgress}
-                  currentMeasure={practiceState.currentMeasure}
+                  currentCursorStep={practiceState.currentCursorStep}
+                  totalCursorSteps={practiceState.totalCursorSteps}
                   lastGrade={practiceState.lastGrade}
+                  onOsmdReady={handleOsmdReady}
                 />
               }
               bottomChildren={
@@ -328,9 +331,10 @@ export default function Home() {
                 musicXml={selectedScore.content}
                 anchorMode={anchorMode}
                 isPlaying={practiceState.isPlaying}
-                cursorProgress={practiceState.cursorProgress}
-                currentMeasure={practiceState.currentMeasure}
+                currentCursorStep={practiceState.currentCursorStep}
+                totalCursorSteps={practiceState.totalCursorSteps}
                 lastGrade={practiceState.lastGrade}
+                onOsmdReady={handleOsmdReady}
               />
             </div>
           )}
@@ -396,7 +400,7 @@ export default function Home() {
         isPlaying={practiceState.isPlaying}
         tempo={tempo}
         volume={volume}
-        currentMeasure={practiceState.currentMeasure}
+        currentMeasure={1}
         totalMeasures={totalMeasures}
         onPlay={handlePlayPause}
         onPause={handlePlayPause}

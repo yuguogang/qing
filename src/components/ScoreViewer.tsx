@@ -5,7 +5,6 @@ import {
   createOsmdInstance,
   loadAndRender,
   applyAnchorColors,
-  setZoom,
   type OsmdConfig,
   DEFAULT_CONFIG,
 } from '@/lib/osmd-utils';
@@ -21,12 +20,14 @@ interface ScoreViewerProps {
   anchorMode?: boolean;
   /** 是否正在播放 */
   isPlaying?: boolean;
-  /** 当前小节 */
-  currentMeasure?: number;
-  /** 光标进度 (0-1) */
-  cursorProgress?: number;
+  /** 当前光标步骤 */
+  currentCursorStep?: number;
+  /** 总光标步骤 */
+  totalCursorSteps?: number;
   /** 上次判定结果 */
   lastGrade?: TimingGrade | null;
+  /** OSMD 实例回调 */
+  onOsmdReady?: (osmd: OpenSheetMusicDisplay) => void;
 }
 
 export default function ScoreViewer({
@@ -34,9 +35,10 @@ export default function ScoreViewer({
   initialConfig,
   anchorMode = true,
   isPlaying = false,
-  currentMeasure = 1,
-  cursorProgress = 0,
+  currentCursorStep = 0,
+  totalCursorSteps = 0,
   lastGrade,
+  onOsmdReady,
 }: ScoreViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
@@ -70,7 +72,7 @@ export default function ScoreViewer({
         setLoading(true);
         setError(null);
 
-        console.log('[ScoreViewer] Initializing OSMD...');
+        console.log('[ScoreViewer] Initializing OSMD with cursor enabled...');
 
         await new Promise(resolve => setTimeout(resolve, 200));
 
@@ -82,7 +84,19 @@ export default function ScoreViewer({
         if (!container) return;
         container.innerHTML = '';
 
+        // 创建 OSMD 实例，启用 cursor
         const osmd = createOsmdInstance(container, config);
+
+        // 启用 cursor（cursorsOptions 是 OSMD 正确的属性名）
+        osmd.setOptions({
+          cursorsOptions: [{
+            follow: true,
+            type: 0,
+            color: '#3B82F6',
+            alpha: 0.7,
+          }],
+        });
+
         osmdRef.current = osmd;
 
         console.log('[ScoreViewer] OSMD instance created, loading MusicXML...');
@@ -91,7 +105,18 @@ export default function ScoreViewer({
 
         console.log('[ScoreViewer] MusicXML loaded and rendered');
 
+        // 隐藏 cursor（等待练习开始时再显示）
+        if (osmd.cursor) {
+          osmd.cursor.hide();
+          console.log('[ScoreViewer] OSMD cursor initialized and hidden');
+        }
+
         if (cancelled) return;
+
+        // 通知父组件 OSMD 已准备好
+        if (onOsmdReady) {
+          onOsmdReady(osmd);
+        }
 
         const svg = container.querySelector('svg');
         if (svg && config.zoom !== 1) {
@@ -204,6 +229,11 @@ export default function ScoreViewer({
     miss: { bg: 'bg-red-400', text: 'text-red-600', label: '偏差' },
   };
 
+  // 进度百分比
+  const progressPercent = totalCursorSteps > 0 
+    ? Math.min((currentCursorStep / totalCursorSteps) * 100, 100) 
+    : 0;
+
   return (
     <div className="flex flex-col h-full">
       {/* 工具栏 */}
@@ -252,7 +282,7 @@ export default function ScoreViewer({
 
       {/* 乐谱显示区域 */}
       <div className="flex-1 overflow-auto bg-gray-50 p-4 relative" style={{ minHeight: '500px' }}>
-        {/* 播放进度指示器 */}
+        {/* 播放进度条 */}
         {isPlaying && (
           <div className="absolute top-4 left-4 right-4 z-10">
             <div className="flex items-center gap-3 bg-white/90 backdrop-blur-sm rounded-lg px-4 py-2 shadow-lg border">
@@ -262,12 +292,12 @@ export default function ScoreViewer({
               </div>
               <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
                 <div 
-                  className="h-full bg-red-500 transition-all duration-100"
-                  style={{ width: `${cursorProgress * 100}%` }}
+                  className="h-full bg-blue-500 transition-all duration-100"
+                  style={{ width: `${progressPercent}%` }}
                 />
               </div>
               <span className="text-sm text-gray-600">
-                第 {currentMeasure || 1} / 8 小节
+                步骤 {currentCursorStep} / {totalCursorSteps}
               </span>
             </div>
           </div>
@@ -300,12 +330,6 @@ export default function ScoreViewer({
           </div>
         )}
 
-        {debugInfo && (
-          <div className="absolute top-2 right-2 bg-yellow-100 border border-yellow-300 rounded px-2 py-1 text-xs font-mono z-20">
-            {debugInfo}
-          </div>
-        )}
-
         <div
           ref={containerRef}
           className="w-full relative"
@@ -315,22 +339,7 @@ export default function ScoreViewer({
             opacity: loading || error ? 0 : 1,
             transition: 'opacity 0.3s ease'
           }}
-        >
-          {/* 移动光标 - 按节拍精确移动 */}
-          {isPlaying && (
-            <div
-              className="absolute top-0 bottom-0 w-0.5 bg-blue-500 pointer-events-none z-10"
-              style={{
-                left: `${cursorProgress * 100}%`,
-                transition: 'left 0.05s linear',
-                boxShadow: '0 0 8px rgba(59, 130, 246, 0.6)'
-              }}
-            >
-              {/* 光标顶部三角形 */}
-              <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-6 border-l-transparent border-r-transparent border-b-blue-500" />
-            </div>
-          )}
-        </div>
+        />
       </div>
     </div>
   );

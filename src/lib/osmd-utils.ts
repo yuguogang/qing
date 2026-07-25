@@ -2,7 +2,7 @@
  * 清谱 - OSMD 乐谱渲染工具
  *
  * 基于 OpenSheetMusicDisplay 引擎，实现三色锚线五线谱渲染。
- * 核心功能：加载 MusicXML → 渲染五线谱 → 三色锚线着色
+ * 核心功能：加载 MusicXML → 渲染五线谱 → 三色锚线着色 → 光标移动
  */
 
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
@@ -54,6 +54,8 @@ export function createOsmdInstance(
     drawPartNames: true,
     newPageFromXML: false,
     pageFormat: 'A4',
+    disableCursor: false, // 启用内置光标
+    followCursor: true,  // 光标跟随滚动
   });
 
   return osmd;
@@ -281,3 +283,65 @@ export function setZoom(osmd: OpenSheetMusicDisplay, zoom: number): void {
   osmd.Zoom = zoom * 100;
   osmd.render();
 }
+
+/**
+ * 显示 OSMD 内置光标
+ */
+export function showCursor(osmd: OpenSheetMusicDisplay): void {
+  if (!osmd.cursor) return;
+  osmd.cursor.show();
+}
+
+/**
+ * 隐藏 OSMD 内置光标
+ */
+export function hideCursor(osmd: OpenSheetMusicDisplay): void {
+  if (!osmd.cursor) return;
+  osmd.cursor.hide();
+}
+
+/**
+ * 重置光标到起始位置
+ */
+export function resetCursor(osmd: OpenSheetMusicDisplay): void {
+  if (!osmd.cursor) return;
+  osmd.cursor.reset();
+}
+
+/**
+ * 将光标移动到下一个音符
+ */
+export function cursorNext(osmd: OpenSheetMusicDisplay): void {
+  if (!osmd.cursor) return;
+  osmd.cursor.next();
+}
+
+/**
+ * 获取光标当前指向的音符的 MIDI 编号列表
+ */
+export function getCursorNoteMidis(osmd: OpenSheetMusicDisplay): number[] {
+  if (!osmd.cursor) return [];
+  
+  try {
+    const notes = osmd.cursor.NotesUnderCursor();
+    return notes
+      .filter(note => !note.isRest())
+      .map(note => {
+        const pitch = note.Pitch;
+        if (!pitch) return -1;
+        // OSMD Pitch 转 MIDI 编号
+        try {
+          // Pitch.Octave: -1 to 9, FundamentalNote: 0(C) to 11(B)
+          const midi = (pitch.Octave + 1) * 12 + pitch.FundamentalNote;
+          return midi;
+        } catch {
+          return -1;
+        }
+      })
+      .filter((midi): midi is number => midi >= 0);
+  } catch {
+    return [];
+  }
+}
+
+
