@@ -5,6 +5,7 @@ import ScoreViewer from "@/components/ScoreViewer";
 import { PracticeControls } from "@/components/PracticeControls";
 import { MIDIStatus } from "@/components/MIDIStatus";
 import { PracticeStats } from "@/components/PracticeStats";
+import { VirtualKeyboard } from "@/components/VirtualKeyboard";
 import { useMIDI } from "@/hooks/useMIDI";
 import { midiToNoteName, calculateAccuracy } from "@/lib/note-matching";
 import type { MIDINoteEvent } from "@/hooks/useMIDI";
@@ -28,18 +29,34 @@ export default function Home() {
   const [totalNotes, setTotalNotes] = useState(0);
   const [lastPlayedNote, setLastPlayedNote] = useState<string | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
+  const [activeNotes, setActiveNotes] = useState<Set<number>>(new Set());
+
+  // 统一的音符处理函数（MIDI 和虚拟键盘共用）
+  const handleNotePlay = useCallback((noteNumber: number) => {
+    const noteName = midiToNoteName(noteNumber);
+    setLastPlayedNote(noteName);
+    setActiveNotes((prev) => new Set(prev).add(noteNumber));
+
+    // 简单验证：暂时只记录音符被弹奏
+    // 完整实现需要与谱面预期音符比较
+    setIsCorrect(true);
+    setCorrectNotes((prev) => prev + 1);
+    setTotalNotes((prev) => prev + 1);
+
+    // 500ms 后移除激活状态
+    setTimeout(() => {
+      setActiveNotes((prev) => {
+        const next = new Set(prev);
+        next.delete(noteNumber);
+        return next;
+      });
+    }, 500);
+  }, []);
 
   // MIDI hook
   const { connections, isSupported, connect, disconnect } = useMIDI({
     onNoteOn: (event: MIDINoteEvent) => {
-      const noteName = midiToNoteName(event.noteNumber);
-      setLastPlayedNote(noteName);
-
-      // Simple validation: for now, just track that a note was played
-      // In a full implementation, we'd compare with the expected note from the score
-      setIsCorrect(true);
-      setCorrectNotes((prev) => prev + 1);
-      setTotalNotes((prev) => prev + 1);
+      handleNotePlay(event.noteNumber);
     },
     onNoteOff: (_event: MIDINoteEvent) => {
       // Handle note off if needed
@@ -179,6 +196,11 @@ export default function Home() {
         onVolumeChange={setVolume}
         onMeasureChange={setCurrentMeasure}
       />
+
+      {/* 虚拟钢琴键盘 */}
+      <div className="bg-card border-t px-6 py-4">
+        <VirtualKeyboard onNotePlay={handleNotePlay} activeNotes={activeNotes} />
+      </div>
 
       {/* 底部信息 */}
       <footer className="bg-card border-t px-6 py-2 text-center">
