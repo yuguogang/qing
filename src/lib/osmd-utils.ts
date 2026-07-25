@@ -65,8 +65,11 @@ export function createOsmdInstance(
 export async function loadAndRender(
   osmd: OpenSheetMusicDisplay,
   musicXmlContent: string,
+  zoom: number = 1.0,
 ): Promise<void> {
   await osmd.load(musicXmlContent);
+  // 设置缩放比例
+  osmd.Zoom = zoom * 100; // OSMD 使用百分比
   osmd.render();
 }
 

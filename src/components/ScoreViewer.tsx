@@ -75,7 +75,7 @@ export default function ScoreViewer({
         console.log('[ScoreViewer] OSMD instance created, loading MusicXML...');
 
         // 加载并渲染
-        await loadAndRender(osmd, musicXml);
+        await loadAndRender(osmd, musicXml, config.zoom);
 
         console.log('[ScoreViewer] MusicXML loaded and rendered');
 
@@ -119,7 +119,7 @@ export default function ScoreViewer({
         if (width > 0 && height > 0 && osmdRef.current) {
           console.log('[ScoreViewer] Container resized:', width, height);
           // 重新渲染以适应新尺寸
-          loadAndRender(osmdRef.current, musicXml).then(() => {
+          loadAndRender(osmdRef.current, musicXml, config.zoom).then(() => {
             if (containerRef.current && config.anchorMode) {
               requestAnimationFrame(() => {
                 if (containerRef.current) {
@@ -145,7 +145,7 @@ export default function ScoreViewer({
       setConfig((prev) => ({ ...prev, zoom: newZoom }));
       // 缩放变化时触发重新渲染
       if (osmdRef.current && containerRef.current && musicXml) {
-        loadAndRender(osmdRef.current, musicXml).then(() => {
+        loadAndRender(osmdRef.current, musicXml, newZoom).then(() => {
           if (containerRef.current && config.anchorMode) {
             requestAnimationFrame(() => {
               if (containerRef.current) {
