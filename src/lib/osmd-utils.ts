@@ -121,7 +121,8 @@ export function applyAnchorColors(
     if (!bbox) return;
 
     // 检测是否为水平线（五线谱线条）- 放宽条件
-    const isHorizontal = bbox.height < 5 && bbox.width > 50;
+    // path 元素可能包含多个线段，bbox 可能比较大
+    const isHorizontal = bbox.height < 15 && bbox.width > 100;
     if (isHorizontal) {
       horizontalLines.push({ el, bbox, tag });
     }
