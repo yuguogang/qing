@@ -21,6 +21,7 @@ export class PianoAudioEngine {
   private isPlaying = false;
   private playStartTime = 0;
   private playTimeouts: number[] = [];
+  private activeOscillators: OscillatorNode[] = []; // 跟踪活跃的振荡器
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -46,11 +47,9 @@ export class PianoAudioEngine {
     const now = ctx.currentTime;
     const frequency = midiToFrequency(midi);
 
-    // 钢琴音色 = 基波 + 少量谐波（更纯净的钢琴音色，避免"敲锣"感）
+    // 钢琴音色 = 纯基波（最纯净的音色，避免"难听"的谐波）
     const harmonics = [
       { ratio: 1, gain: 1.0, type: 'sine' as const },      // 基波
-      { ratio: 2, gain: 0.25, type: 'sine' as const },     // 2 次谐波（八度）
-      { ratio: 3, gain: 0.08, type: 'sine' as const },     // 3 次谐波（五度）
     ];
 
     const noteGain = ctx.createGain();
@@ -88,6 +87,15 @@ export class PianoAudioEngine {
 
       osc.start(now);
       osc.stop(now + duration + 0.1);
+      
+      // 跟踪活跃的振荡器
+      this.activeOscillators.push(osc);
+      osc.onended = () => {
+        const index = this.activeOscillators.indexOf(osc);
+        if (index > -1) {
+          this.activeOscillators.splice(index, 1);
+        }
+      };
     });
   }
 
@@ -132,6 +140,16 @@ export class PianoAudioEngine {
     this.isPlaying = false;
     this.playTimeouts.forEach((timeout) => clearTimeout(timeout));
     this.playTimeouts = [];
+    
+    // 停止所有活跃的振荡器
+    this.activeOscillators.forEach((osc) => {
+      try {
+        osc.stop();
+      } catch (e) {
+        // 振荡器可能已经停止
+      }
+    });
+    this.activeOscillators = [];
   }
 
   // 是否正在播放
