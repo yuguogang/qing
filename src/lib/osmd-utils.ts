@@ -205,16 +205,17 @@ export function applyAnchorColors(
     const svgNS = 'http://www.w3.org/2000/svg';
     const svgWidth = svg.viewBox.baseVal.width || svg.clientWidth || 1000;
     
-    // 创建红色线（第三线）- 实线
+    // 创建红色线（第三线）- 实线，插入到最底层避免挡住文字
     const redLine = document.createElementNS(svgNS, 'line');
     redLine.setAttribute('x1', '0');
     redLine.setAttribute('y1', String(thirdLineY));
     redLine.setAttribute('x2', String(svgWidth));
     redLine.setAttribute('y2', String(thirdLineY));
     redLine.setAttribute('stroke', '#FF0000');
-    redLine.setAttribute('stroke-width', '8');
-    redLine.setAttribute('stroke-opacity', '1');
-    svg.appendChild(redLine);
+    redLine.setAttribute('stroke-width', '3');
+    redLine.setAttribute('stroke-opacity', '0.7');
+    // 插入到最前面，作为背景层
+    svg.insertBefore(redLine, svg.firstChild);
     console.log('[Anchor] Added red line at Y:', thirdLineY);
     
     // 创建蓝色线（上加一线）- 虚线
