@@ -67,8 +67,11 @@ export function ResizableSplit({
     <div ref={containerRef} className="flex flex-col h-full overflow-hidden">
       {/* 顶部区域 */}
       <div
-        style={{ height: `${split * 100}%`, minHeight: `${minTopHeight}px` }}
-        className="overflow-auto"
+        style={{ 
+          flex: `0 0 ${split * 100}%`,
+          minHeight: `${minTopHeight}px`,
+          overflow: 'auto'
+        }}
       >
         {topChildren}
       </div>
@@ -76,15 +79,18 @@ export function ResizableSplit({
       {/* 分割线 */}
       <div
         onMouseDown={handleMouseDown}
-        className="h-2 bg-border hover:bg-primary/20 cursor-row-resize flex items-center justify-center transition-colors relative"
+        className="h-2 bg-border hover:bg-primary/20 cursor-row-resize flex items-center justify-center transition-colors relative flex-shrink-0"
       >
         <div className="w-12 h-0.5 bg-muted-foreground/30 rounded-full" />
       </div>
 
       {/* 底部区域 */}
       <div
-        style={{ height: `${(1 - split) * 100}%`, minHeight: `${minBottomHeight}px` }}
-        className="overflow-auto"
+        style={{ 
+          flex: `0 0 ${(1 - split) * 100}%`,
+          minHeight: `${minBottomHeight}px`,
+          overflow: 'auto'
+        }}
       >
         {bottomChildren}
       </div>
