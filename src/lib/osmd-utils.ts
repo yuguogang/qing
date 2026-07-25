@@ -67,9 +67,9 @@ export async function loadAndRender(
   musicXmlContent: string,
   zoom: number = 1.0,
 ): Promise<void> {
-  await osmd.load(musicXmlContent);
-  // 设置缩放比例
+  // 设置缩放比例（必须在 load 之前）
   osmd.Zoom = zoom * 100; // OSMD 使用百分比
+  await osmd.load(musicXmlContent);
   osmd.render();
 }
 

@@ -81,6 +81,13 @@ export default function ScoreViewer({
 
         if (cancelled) return;
 
+        // 应用 CSS 缩放
+        const svg = container.querySelector('svg');
+        if (svg && config.zoom !== 1) {
+          svg.style.transform = `scale(${config.zoom})`;
+          svg.style.transformOrigin = 'top left';
+        }
+
         // 应用三色锚线
         if (config.anchorMode && containerRef.current) {
           // 等待 SVG 渲染完成
@@ -139,24 +146,20 @@ export default function ScoreViewer({
     };
   }, [musicXml, config.anchorMode]);
 
-  // 缩放处理 - 需要重新渲染
+  // 缩放处理 - 使用 CSS transform 实现实时缩放
   const handleZoomChange = useCallback(
     (newZoom: number) => {
       setConfig((prev) => ({ ...prev, zoom: newZoom }));
-      // 缩放变化时触发重新渲染
-      if (osmdRef.current && containerRef.current && musicXml) {
-        loadAndRender(osmdRef.current, musicXml, newZoom).then(() => {
-          if (containerRef.current && config.anchorMode) {
-            requestAnimationFrame(() => {
-              if (containerRef.current) {
-                applyAnchorColors(containerRef.current, { ...config, zoom: newZoom });
-              }
-            });
-          }
-        });
+      // 使用 CSS transform 实现即时缩放反馈
+      if (containerRef.current) {
+        const svg = containerRef.current.querySelector('svg');
+        if (svg) {
+          svg.style.transform = `scale(${newZoom})`;
+          svg.style.transformOrigin = 'top left';
+        }
       }
     },
-    [musicXml, config],
+    [],
   );
 
   // 锚线模式切换
