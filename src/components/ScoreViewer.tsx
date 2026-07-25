@@ -91,11 +91,10 @@ export default function ScoreViewer({
 
         // 应用三色锚线
         if (config.anchorMode && containerRef.current) {
-          // 等待 SVG 渲染完成
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // 等待 SVG 完全渲染
+          await new Promise(resolve => setTimeout(resolve, 1000));
           requestAnimationFrame(() => {
             if (containerRef.current) {
-              // 调试：输出 SVG 结构信息
               const svg = containerRef.current.querySelector('svg');
               if (svg) {
                 const allElements = svg.querySelectorAll('*');
@@ -106,6 +105,17 @@ export default function ScoreViewer({
                 const debugText = `SVG: ${allElements.length} elements, ${lineElements.length} lines, ${pathElements.length} paths, ${rectElements.length} rects`;
                 setDebugInfo(debugText);
                 console.log('[ScoreViewer] SVG debug:', debugText);
+                
+                // 输出前 20 个元素的详细信息
+                const sampleElements = Array.from(allElements).slice(0, 20).map(el => ({
+                  tag: el.tagName,
+                  class: el.getAttribute('class'),
+                  x: el.getAttribute('x') || el.getAttribute('x1'),
+                  y: el.getAttribute('y') || el.getAttribute('y1'),
+                  width: el.getAttribute('width'),
+                  height: el.getAttribute('height')
+                }));
+                console.log('[ScoreViewer] Sample elements:', JSON.stringify(sampleElements, null, 2));
                 
                 // 保存 SVG 结构到文件供调试
                 if (typeof window !== 'undefined') {
@@ -129,6 +139,7 @@ export default function ScoreViewer({
                 }
               }
               
+              console.log('[ScoreViewer] Calling applyAnchorColors...');
               applyAnchorColors(containerRef.current, config);
               console.log('[ScoreViewer] Anchor colors applied');
             }
