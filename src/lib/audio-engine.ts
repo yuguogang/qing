@@ -46,24 +46,21 @@ export class PianoAudioEngine {
     const now = ctx.currentTime;
     const frequency = midiToFrequency(midi);
 
-    // 钢琴音色 = 基波 + 谐波（更自然的钢琴谐波结构）
+    // 钢琴音色 = 基波 + 少量谐波（更纯净的钢琴音色，避免"敲锣"感）
     const harmonics = [
       { ratio: 1, gain: 1.0, type: 'sine' as const },      // 基波
-      { ratio: 2, gain: 0.4, type: 'sine' as const },      // 2 次谐波（八度）
-      { ratio: 3, gain: 0.15, type: 'sine' as const },     // 3 次谐波（五度）
-      { ratio: 4, gain: 0.08, type: 'sine' as const },     // 4 次谐波（双八度）
-      { ratio: 5, gain: 0.04, type: 'sine' as const },     // 5 次谐波（大三度）
-      { ratio: 6, gain: 0.02, type: 'sine' as const },     // 6 次谐波
+      { ratio: 2, gain: 0.25, type: 'sine' as const },     // 2 次谐波（八度）
+      { ratio: 3, gain: 0.08, type: 'sine' as const },     // 3 次谐波（五度）
     ];
 
     const noteGain = ctx.createGain();
     noteGain.connect(this.masterGain);
 
-    // ADSR 包络（更接近真实钢琴）
-    const attack = 0.002;  // 快速起音
-    const decay = 0.15;    // 衰减
-    const sustain = 0.3;   // 延音（较低）
-    const release = Math.min(0.5, duration * 0.4);
+    // ADSR 包络（更短促，避免"敲锣尾音"感）
+    const attack = 0.005;  // 快速起音
+    const decay = 0.1;     // 快速衰减
+    const sustain = 0.2;   // 低延音
+    const release = Math.min(0.3, duration * 0.3);
 
     noteGain.gain.setValueAtTime(0, now);
     noteGain.gain.linearRampToValueAtTime(velocity * 0.6, now + attack); // 降低整体音量

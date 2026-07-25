@@ -34,6 +34,7 @@ export default function Home() {
 
   // 音频引擎
   const audioEngineRef = useRef<PianoAudioEngine | null>(null);
+  const playTimeoutsRef = useRef<number[]>([]);
   const [parsedNotes, setParsedNotes] = useState<Array<{ midi: number; duration: number; startTime: number }>>([]);
 
   // 初始化音频引擎
@@ -57,28 +58,48 @@ export default function Home() {
     }
   }, [selectedScore]);
 
-  // 播放伴奏
+  // 播放伴奏（按时间顺序）
   const playAccompaniment = useCallback(() => {
     if (!audioEngineRef.current || parsedNotes.length === 0) return;
 
     const engine = audioEngineRef.current;
     const bpm = tempo;
     const vol = volume / 100;
+    const secondsPerBeat = 60 / bpm;
 
-    // 逐个播放音符
+    // 按时间顺序调度音符
     parsedNotes.forEach((note) => {
-      engine.playNote(note.midi, bpm, vol);
+      const delay = note.startTime * secondsPerBeat * 1000; // 转换为毫秒
+      const timeout = window.setTimeout(() => {
+        engine.playNote(note.midi, note.duration * secondsPerBeat, vol);
+      }, delay);
+      playTimeoutsRef.current.push(timeout);
     });
 
+    // 计算总时长
+    const lastNote = parsedNotes[parsedNotes.length - 1];
+    const totalDuration = (lastNote.startTime + lastNote.duration) * secondsPerBeat * 1000;
+    const endTimeout = window.setTimeout(() => {
+      setIsPlaying(false);
+      setCurrentMeasure(totalMeasures);
+    }, totalDuration);
+    playTimeoutsRef.current.push(endTimeout);
+
     setIsPlaying(true);
-  }, [parsedNotes, tempo, volume]);
+  }, [parsedNotes, tempo, volume, totalMeasures]);
 
   // 暂停伴奏
   const stopAccompaniment = useCallback(() => {
+    // 清除所有待播放的定时器
+    playTimeoutsRef.current.forEach((timeout) => {
+      window.clearTimeout(timeout);
+    });
+    playTimeoutsRef.current = [];
+
     if (audioEngineRef.current) {
       audioEngineRef.current.stop();
-      setIsPlaying(false);
     }
+    setIsPlaying(false);
   }, []);
 
   // 处理播放/暂停
