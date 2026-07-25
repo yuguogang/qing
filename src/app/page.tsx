@@ -86,6 +86,9 @@ export default function Home() {
     }
   }, [parsedNotes, loadNotes]);
 
+  // 跟踪伴奏定时器
+  const accompanimentTimeoutsRef = useRef<number[]>([]);
+
   // 播放伴奏（跟弹模式）
   const playAccompaniment = useCallback(() => {
     if (!audioEngineRef.current || parsedNotes.length === 0) return;
@@ -95,18 +98,34 @@ export default function Home() {
     const vol = volume / 100;
     const secondsPerBeat = 60 / bpm;
 
+    // 清除之前的定时器
+    accompanimentTimeoutsRef.current.forEach(id => clearTimeout(id));
+    accompanimentTimeoutsRef.current = [];
+
     // 按时间顺序调度音符
     parsedNotes.forEach((note) => {
       const delay = note.startTime * secondsPerBeat * 1000;
-      setTimeout(() => {
+      const timeout = window.setTimeout(() => {
         engine.playNote(note.midi, note.duration * secondsPerBeat, vol);
       }, delay);
+      accompanimentTimeoutsRef.current.push(timeout);
     });
   }, [parsedNotes, tempo, volume]);
+
+  // 停止伴奏
+  const stopAccompaniment = useCallback(() => {
+    // 清除所有定时器
+    accompanimentTimeoutsRef.current.forEach(id => clearTimeout(id));
+    accompanimentTimeoutsRef.current = [];
+    // 停止音频引擎
+    audioEngineRef.current?.stop();
+  }, []);
 
   // 处理播放/暂停
   const handlePlayPause = useCallback(() => {
     if (practiceState.isPlaying) {
+      // 暂停时停止伴奏
+      stopAccompaniment();
       pause();
     } else {
       // 跟弹模式播放伴奏
@@ -115,7 +134,7 @@ export default function Home() {
       }
       start();
     }
-  }, [practiceState.isPlaying, practiceMode, playAccompaniment, start, pause]);
+  }, [practiceState.isPlaying, practiceMode, playAccompaniment, start, pause, stopAccompaniment]);
 
   // 处理速度变化
   const handleTempoChange = useCallback((newTempo: number) => {
@@ -143,6 +162,7 @@ export default function Home() {
 
   // 重置
   const handleRestart = useCallback(() => {
+    stopAccompaniment();
     stop();
     reset();
     setTimeout(() => {
@@ -151,7 +171,7 @@ export default function Home() {
       }
       start();
     }, 100);
-  }, [stop, reset, practiceMode, playAccompaniment, start]);
+  }, [stopAccompaniment, stop, reset, practiceMode, playAccompaniment, start]);
 
   // 统一的音符处理函数（MIDI 和虚拟键盘共用）
   const handleNotePlay = useCallback((noteNumber: number) => {

@@ -91,12 +91,20 @@ export class PracticeController {
     this.audioContext = ctx;
   }
 
+  // 计算时间缩放因子（基于 BPM）
+  private getTimeScale(): number {
+    const originalBpm = 80; // MusicXML 解析时的基准 BPM
+    return originalBpm / this.state.bpm;
+  }
+
   // 加载音符序列
   loadNotes(notes: PianoNote[]) {
     this.notes = [...notes].sort((a, b) => a.startTime - b.startTime);
+    const timeScale = this.getTimeScale();
+    
     this.judgments = this.notes.map(note => ({
       note,
-      expectedTime: note.startTime * 1000, // 转换为 ms
+      expectedTime: note.startTime * 1000 * timeScale, // 转换为 ms，考虑 BPM
       judged: false,
     }));
     this.state.stats.totalNotes = this.notes.length;
@@ -190,13 +198,15 @@ export class PracticeController {
 
   // 更新当前音符索引
   private updateCurrentNoteIndex() {
+    const timeScale = this.getTimeScale();
     const currentTimeSec = this.state.currentTime / 1000;
     
-    // 找到当前应该演奏的音符
+    // 找到当前应该演奏的音符（考虑 BPM 缩放）
     for (let i = this.state.currentNoteIndex; i < this.notes.length; i++) {
       const note = this.notes[i];
+      const noteStartTime = note.startTime * timeScale;
       // 如果当前时间已经超过了音符的开始时间，更新索引
-      if (currentTimeSec >= note.startTime) {
+      if (currentTimeSec >= noteStartTime) {
         this.state.currentNoteIndex = i + 1;
       } else {
         break;
@@ -346,8 +356,9 @@ export class PracticeController {
   getCursorProgress(): number {
     if (this.notes.length === 0) return 0;
     
-    const totalDuration = this.notes[this.notes.length - 1].startTime + 
-                          this.notes[this.notes.length - 1].duration;
+    const timeScale = this.getTimeScale();
+    const totalDuration = (this.notes[this.notes.length - 1].startTime + 
+                          this.notes[this.notes.length - 1].duration) * timeScale;
     const currentTimeSec = this.state.currentTime / 1000;
     
     return Math.min(currentTimeSec / totalDuration, 1);
