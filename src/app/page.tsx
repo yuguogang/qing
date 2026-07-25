@@ -12,10 +12,40 @@ import { PianoAudioEngine, type PianoNote } from "@/lib/audio-engine";
 import { parseMusicXMLNotes } from "@/lib/musicxml-parser";
 import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 
-// ===== 常量 =====
-const SAMPLE_SCORES = [
-  { id: "beyer-1", name: "拜厄 No.1", content: beyerNo1Xml },
+// ===== 曲库注册表 =====
+const SCORE_REGISTRY: { id: string; name: string; file: string }[] = [
+  { id: "beyer-1", name: "拜厄 No.1", file: "" },
+  { id: "beethoven-geliebte", name: "贝多芬 - 致远方的爱人", file: "Beethoven_AnDieFerneGeliebte.xml" },
+  { id: "bach-air", name: "巴赫 - Air", file: "JohannSebastianBach_Air.xml" },
+  { id: "bach-praeludium", name: "巴赫 - C大调前奏曲 BWV846", file: "JohannSebastianBach_PraeludiumInCDur_BWV846_1.xml" },
+  { id: "mozart-anchloe", name: "莫扎特 - 致克罗埃", file: "Mozart_AnChloe.xml" },
+  { id: "mozart-veilchen", name: "莫扎特 - 紫罗兰", file: "Mozart_DasVeilchen.xml" },
+  { id: "schubert-musik", name: "舒伯特 - 致音乐", file: "Schubert_An_die_Musik.xml" },
+  { id: "schumann-horseman", name: "舒曼 - 荒野骑士 Op.68 No.8", file: "Schumann_The_Wild_Horseman_Op._68_No._8.mxl" },
+  { id: "clementi-1-1", name: "克莱门蒂 - 小奏鸣曲 Op.36 No.1 Pt.1", file: "MuzioClementi_SonatinaOpus36No1_Part1.xml" },
+  { id: "clementi-1-2", name: "克莱门蒂 - 小奏鸣曲 Op.36 No.1 Pt.2", file: "MuzioClementi_SonatinaOpus36No1_Part2.xml" },
+  { id: "clementi-3-1", name: "克莱门蒂 - 小奏鸣曲 Op.36 No.3 Pt.1", file: "MuzioClementi_SonatinaOpus36No3_Part1.xml" },
+  { id: "clementi-3-2", name: "克莱门蒂 - 小奏鸣曲 Op.36 No.3 Pt.2", file: "MuzioClementi_SonatinaOpus36No3_Part2.xml" },
+  { id: "joplin-entertainer", name: "乔普林 - 演艺人", file: "ScottJoplin_The_Entertainer.xml" },
+  { id: "joplin-elite", name: "乔普林 - 精英切分音", file: "ScottJoplin_EliteSyncopations.xml" },
+  { id: "debussy-mandoline", name: "德彪西 - 曼陀林", file: "Debussy_Mandoline.xml" },
+  { id: "haydn-cello", name: "海顿 - 大提琴协奏曲", file: "JosephHaydn_ConcertanteCello.xml" },
+  { id: "gounod-meditation", name: "古诺 - 沉思曲", file: "CharlesGounod_Meditation.xml" },
+  { id: "telemann-1-1", name: "泰勒曼 - 奏鸣曲 No.1.1 Dolce", file: "TelemannWV40.102_Sonate-Nr.1.1-Dolce.xml" },
+  { id: "telemann-1-2", name: "泰勒曼 - 奏鸣曲 No.1.2 Allegro", file: "TelemannWV40.102_Sonate-Nr.1.2-Allegro-F-Dur.xml" },
+  { id: "saltarello", name: "Saltarello", file: "Saltarello.xml" },
+  { id: "dichterliebe", name: "舒曼 - 诗人之恋", file: "Dichterliebe01.xml" },
+  { id: "mozart-clarinet", name: "莫扎特 - 单簧管五重奏", file: "Mozart_Clarinet_Quintet_Excerpt.mxl" },
+  { id: "parlez-moi", name: "Parlez-moi", file: "Parlez-moi.mxl" },
+  { id: "actor-prelude", name: "Actor Prelude", file: "ActorPreludeSample.xml" },
 ];
+
+const SAMPLE_SCORES = SCORE_REGISTRY.map((s) => ({
+  id: s.id,
+  name: s.name,
+  content: s.file === "" ? beyerNo1Xml : "",
+  file: s.file,
+}));
 
 type DisplayMode = "standard" | "anchor" | "spectrum";
 
@@ -37,6 +67,13 @@ function TopBar({
   zoom,
   onZoomChange,
   isPlaying,
+  darkMode,
+  onDarkModeToggle,
+  onCursorShow,
+  onCursorHide,
+  onCursorPrev,
+  onCursorNext,
+  onExportSvg,
 }: {
   collapsed: boolean;
   onToggle: () => void;
@@ -52,6 +89,13 @@ function TopBar({
   zoom: number;
   onZoomChange: (z: number) => void;
   isPlaying: boolean;
+  darkMode: boolean;
+  onDarkModeToggle: () => void;
+  onCursorShow: () => void;
+  onCursorHide: () => void;
+  onCursorPrev: () => void;
+  onCursorNext: () => void;
+  onExportSvg: () => void;
 }) {
   return (
     <div className={`collapsible-panel bg-card border-b ${collapsed ? "collapsed" : ""}`} style={{ height: collapsed ? 8 : 48 }}>
@@ -143,6 +187,20 @@ function TopBar({
             <span className="text-xs font-mono w-10 text-right">{Math.round(zoom * 100)}%</span>
           </div>
 
+          {/* Cursor 控件 */}
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button onClick={onCursorShow} className="px-1.5 py-1 text-xs rounded hover:bg-secondary transition-colors" title="显示光标">👁</button>
+            <button onClick={onCursorHide} className="px-1.5 py-1 text-xs rounded hover:bg-secondary transition-colors" title="隐藏光标">🚫</button>
+            <button onClick={onCursorPrev} className="px-1.5 py-1 text-xs rounded hover:bg-secondary transition-colors" title="上一个">◀</button>
+            <button onClick={onCursorNext} className="px-1.5 py-1 text-xs rounded hover:bg-secondary transition-colors" title="下一个">▶</button>
+          </div>
+
+          {/* Dark Mode + PDF */}
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button onClick={onDarkModeToggle} className={`px-1.5 py-1 text-xs rounded transition-colors ${darkMode ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`} title="暗色模式">🌙</button>
+            <button onClick={onExportSvg} className="px-1.5 py-1 text-xs rounded hover:bg-secondary transition-colors" title="导出 SVG">📄</button>
+          </div>
+
           {/* 折叠按钮 */}
           <button
             onClick={onToggle}
@@ -192,12 +250,7 @@ function StatsBar({
       <span className="stat-item">
         准确率: <span className="font-bold">{accuracy.toFixed(1)}%</span>
       </span>
-      {isPlaying && (
-        <span className="flex items-center gap-1 text-green-600">
-          <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-          演奏中
-        </span>
-      )}
+      {/* 演奏状态指示已移除 */}
     </div>
   );
 }
@@ -259,6 +312,58 @@ export default function Home() {
   const [topCollapsed, setTopCollapsed] = useState(false);
   const [keyboardCollapsed, setKeyboardCollapsed] = useState(false);
 
+  // Dark mode
+  const [darkMode, setDarkMode] = useState(false);
+  const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
+
+  // Dark mode toggle
+  const handleDarkModeToggle = useCallback(() => {
+    setDarkMode((prev) => {
+      const next = !prev;
+      document.documentElement.classList.toggle("dark", next);
+      return next;
+    });
+  }, []);
+
+  // SVG 导出
+  const handleExportSvg = useCallback(() => {
+    osmdRef.current?.exportSVG();
+  }, []);
+
+  // Cursor 控件
+  const handleCursorShow = useCallback(() => {
+    osmdRef.current?.cursor.show();
+  }, []);
+  const handleCursorHide = useCallback(() => {
+    osmdRef.current?.cursor.hide();
+  }, []);
+  const handleCursorPrev = useCallback(() => {
+    const c = osmdRef.current?.cursor;
+    if (c) {
+      c.previous();
+      const notes = c.NotesUnderCursor();
+      if (notes.length > 0) {
+        const midi = notes[0].halfTone + 60;
+        if (audioEngineRef.current) {
+          audioEngineRef.current.playNote(midi, 0.5, volume / 100);
+        }
+      }
+    }
+  }, [volume]);
+  const handleCursorNext = useCallback(() => {
+    const c = osmdRef.current?.cursor;
+    if (c) {
+      c.next();
+      const notes = c.NotesUnderCursor();
+      if (notes.length > 0) {
+        const midi = notes[0].halfTone + 60;
+        if (audioEngineRef.current) {
+          audioEngineRef.current.playNote(midi, 0.5, volume / 100);
+        }
+      }
+    }
+  }, [volume]);
+
   // 音频引擎
   const audioEngineRef = useRef<PianoAudioEngine | null>(null);
   const [parsedNotes, setParsedNotes] = useState<PianoNote[]>([]);
@@ -289,6 +394,13 @@ export default function Home() {
     reset,
   } = usePractice(practiceMode, tempo, audioContextState);
 
+  const handleNotePlay = useCallback((noteNumber: number) => {
+    if (audioEngineRef.current) {
+      audioEngineRef.current.playNote(noteNumber, 0.5, volume / 100);
+    }
+    handleKeyPress(noteNumber);
+  }, [volume, handleKeyPress]);
+
   useEffect(() => {
     setAudioContextState(audioContextRef.current);
   }, []);
@@ -298,6 +410,7 @@ export default function Home() {
   }, [parsedNotes, loadNotes]);
 
   const handleOsmdReady = useCallback((osmd: OpenSheetMusicDisplay) => {
+    osmdRef.current = osmd;
     setOSMD(osmd);
   }, [setOSMD]);
 
@@ -360,14 +473,6 @@ export default function Home() {
     setDisplayMode(mode);
   }, []);
 
-  // 音符处理
-  const handleNotePlay = useCallback((noteNumber: number) => {
-    if (audioEngineRef.current) {
-      audioEngineRef.current.playNote(noteNumber, 0.5, volume / 100);
-    }
-    handleKeyPress(noteNumber);
-  }, [volume, handleKeyPress]);
-
   // MIDI
   const { connections, isSupported, connect, disconnect } = useMIDI({
     onNoteOn: (event: MIDINoteEvent) => { handleNotePlay(event.noteNumber); },
@@ -412,6 +517,13 @@ export default function Home() {
         zoom={zoom}
         onZoomChange={setZoom}
         isPlaying={practiceState.isPlaying}
+        darkMode={darkMode}
+        onDarkModeToggle={handleDarkModeToggle}
+        onCursorShow={handleCursorShow}
+        onCursorHide={handleCursorHide}
+        onCursorPrev={handleCursorPrev}
+        onCursorNext={handleCursorNext}
+        onExportSvg={handleExportSvg}
       />
 
       {/* 乐谱展示区 */}
