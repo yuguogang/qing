@@ -294,13 +294,18 @@ export function applyAnchorColors(
  */
 function applyColor(el: SVGElement, color: string): void {
   const tag = el.tagName.toLowerCase();
-  if (tag === 'line') {
+  if (tag === 'line' || tag === 'path') {
+    // 使用 style 属性强制覆盖，避免被 CSS 覆盖
     el.setAttribute('stroke', color);
-    el.setAttribute('stroke-width', '2');
-  } else if (tag === 'path') {
-    // 只设置 stroke，不修改 fill，避免隐藏线条
-    el.setAttribute('stroke', color);
-    el.setAttribute('stroke-width', '2');
+    el.setAttribute('stroke-width', '3');
+    el.setAttribute('stroke-opacity', '1');
+    
+    // 同时设置 style 属性，确保优先级最高
+    el.style.stroke = color;
+    el.style.strokeWidth = '3px';
+    el.style.strokeOpacity = '1';
+    
+    console.log('[Anchor] Applied color to', tag);
   }
 }
 
