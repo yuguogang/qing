@@ -76,20 +76,23 @@ export async function loadAndRender(
 }
 
 /**
- * 应用三色锚线着色
+ * 应用三色锚线着色（基于 OSMD GraphicalLine API）
  *
- * 核心逻辑：遍历 SVG 中的五线谱线条，识别关键线条并着色：
- * - 第三线（中央C锚点）：暖红色
- * - 上加一线：蓝色
- * - 下加一线：绿色
+ * 通过 OSMD 内部 API 获取五线谱线的精确坐标，然后插入彩色 SVG 线条：
+ * - 第三线（中央C锚点）：暖红色实线
+ * - 上加一线：蓝色虚线
+ * - 下加一线：绿色虚线
+ *
+ * 优势：不再依赖"宽度排序"启发式方法，坐标完全精确。
  */
 export function applyAnchorColors(
+  osmd: OpenSheetMusicDisplay,
   container: HTMLElement,
   config: OsmdConfig,
 ): {
   totalElements: number;
-  horizontalLinesCount: number;
   staffLinesFound: number;
+  anchorLinesApplied: number;
 } | null {
   if (!config.anchorMode) return null;
 
@@ -99,56 +102,196 @@ export function applyAnchorColors(
     return null;
   }
 
-  console.log('[Anchor] SVG found, viewBox:', svg.viewBox?.baseVal);
-  console.log('[Anchor] SVG children count:', svg.children.length);
+  // 通过 OSMD API 获取五线谱线的精确坐标
+  const staffLineData = extractStaffLinePositions(osmd);
+  if (!staffLineData || staffLineData.length === 0) {
+    console.log('[Anchor] No staff line positions from OSMD API, falling back to SVG scan');
+    // 降级方案：使用旧的 SVG 扫描方法
+    return applyAnchorColorsFallback(container, config);  }
 
-  // 获取所有可能的线条元素（包括 rect, line, path, polygon）
+  console.log('[Anchor] OSMD API found', staffLineData.length, 'staff line groups');
+  let anchorLinesApplied = 0;
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svgWidth = svg.viewBox?.baseVal?.width || svg.clientWidth || 1000;
+
+  for (const group of staffLineData) {
+    const { lines, staffLineIndex } = group;
+
+    // lines 已经按 Y 坐标排序（第1线在上，第5线在下）
+    if (lines.length < 5) continue;
+
+    const thirdLineY = lines[2].y;
+    const topLineY = lines[0].y;
+    const bottomLineY = lines[4].y;
+    const spacing = lines[1].y - lines[0].y;
+    const upperLedgerY = topLineY - spacing;
+    const lowerLedgerY = bottomLineY + spacing;
+    const lineX1 = lines[0].x;
+    const lineX2 = lines[0].x2;
+
+    console.log(`[Anchor] StaffLine #${staffLineIndex}: thirdY=${thirdLineY.toFixed(1)}, spacing=${spacing.toFixed(1)}, x1=${lineX1.toFixed(1)}, x2=${lineX2.toFixed(1)}`);
+
+    // 红色线（第三线）- 实线，插入到最底层
+    const redLine = document.createElementNS(svgNS, 'line');
+    redLine.setAttribute('x1', String(lineX1));
+    redLine.setAttribute('y1', String(thirdLineY));
+    redLine.setAttribute('x2', String(lineX2));
+    redLine.setAttribute('y2', String(thirdLineY));
+    redLine.setAttribute('stroke', '#FF0000');
+    redLine.setAttribute('stroke-width', '3');
+    redLine.setAttribute('stroke-opacity', '0.7');
+    redLine.dataset.anchorLine = 'middle';
+    svg.insertBefore(redLine, svg.firstChild);
+    anchorLinesApplied++;
+
+    // 蓝色线（上加一线）- 虚线
+    const blueLine = document.createElementNS(svgNS, 'line');
+    blueLine.setAttribute('x1', String(lineX1));
+    blueLine.setAttribute('y1', String(upperLedgerY));
+    blueLine.setAttribute('x2', String(lineX2));
+    blueLine.setAttribute('y2', String(upperLedgerY));
+    blueLine.setAttribute('stroke', ANCHOR_COLORS.upperLedger);
+    blueLine.setAttribute('stroke-width', '3');
+    blueLine.setAttribute('stroke-opacity', '0.9');
+    blueLine.setAttribute('stroke-dasharray', '8,4');
+    blueLine.dataset.anchorLine = 'upperLedger';
+    svg.appendChild(blueLine);
+    anchorLinesApplied++;
+
+    // 绿色线（下加一线）- 虚线
+    const greenLine = document.createElementNS(svgNS, 'line');
+    greenLine.setAttribute('x1', String(lineX1));
+    greenLine.setAttribute('y1', String(lowerLedgerY));
+    greenLine.setAttribute('x2', String(lineX2));
+    greenLine.setAttribute('y2', String(lowerLedgerY));
+    greenLine.setAttribute('stroke', ANCHOR_COLORS.lowerLedger);
+    greenLine.setAttribute('stroke-width', '3');
+    greenLine.setAttribute('stroke-opacity', '0.9');
+    greenLine.setAttribute('stroke-dasharray', '8,4');
+    greenLine.dataset.anchorLine = 'lowerLedger';
+    svg.appendChild(greenLine);
+    anchorLinesApplied++;
+  }
+
   const allElements = svg.querySelectorAll('*');
-  console.log('[Anchor] Total elements:', allElements.length);
-  
-  // 过滤出水平线条（五线谱线条）
+  return {
+    totalElements: allElements.length,
+    staffLinesFound: staffLineData.length,
+    anchorLinesApplied,
+  };
+}
+
+/**
+ * 从 OSMD GraphicSheet 提取五线谱线的精确坐标
+ *
+ * 路径：osmd.GraphicSheet.MusicPages → MusicSystems → StaffLines → StaffLine.StaffLines (GraphicalLine[])
+ * 每个 StaffLine 有 5 条 GraphicalLine，分别对应五线谱的第1-5线
+ */
+interface StaffLinePosition {
+  y: number;    // 线的 Y 坐标
+  x: number;    // 线的起始 X 坐标
+  x2: number;   // 线的结束 X 坐标
+}
+
+interface StaffLineGroup {
+  staffLineIndex: number;
+  lines: StaffLinePosition[];  // 5 条线，按 Y 坐标从上到下排序
+}
+
+function extractStaffLinePositions(osmd: OpenSheetMusicDisplay): StaffLineGroup[] | null {
+  try {
+    const graphicSheet = osmd.GraphicSheet;
+    if (!graphicSheet) {
+      console.log('[Anchor] No GraphicSheet');
+      return null;
+    }
+
+    const musicPages = graphicSheet.MusicPages;
+    if (!musicPages || musicPages.length === 0) {
+      console.log('[Anchor] No MusicPages');
+      return null;
+    }
+
+    const result: StaffLineGroup[] = [];
+
+    for (const page of musicPages) {
+      const systems = page.MusicSystems;
+      if (!systems) continue;
+
+      for (const system of systems) {
+        const staffLines = system.StaffLines;
+        if (!staffLines) continue;
+
+        for (let sli = 0; sli < staffLines.length; sli++) {
+          const staffLineObj = staffLines[sli];
+          const graphicalLines = staffLineObj.StaffLines;
+          if (!graphicalLines || graphicalLines.length < 5) continue;
+
+          // 提取 5 条线的坐标
+          const lines: StaffLinePosition[] = graphicalLines
+            .slice(0, 5)
+            .map((gl: { Start: { x: number; y: number }; End: { x: number; y: number } }) => ({
+              y: gl.Start.y,
+              x: gl.Start.x,
+              x2: gl.End.x,
+            }))
+            .sort((a: StaffLinePosition, b: StaffLinePosition) => a.y - b.y);
+
+          result.push({
+            staffLineIndex: sli,
+            lines,
+          });
+        }
+      }
+    }
+
+    return result.length > 0 ? result : null;
+  } catch (err) {
+    console.log('[Anchor] Error extracting staff line positions:', err);
+    return null;
+  }
+}
+
+/**
+ * 降级方案：通过 SVG 扫描识别五线谱线位置（旧的启发式方法）
+ */
+function applyAnchorColorsFallback(
+  container: HTMLElement,
+  config: OsmdConfig,
+): {
+  totalElements: number;
+  staffLinesFound: number;
+  anchorLinesApplied: number;
+} | null {
+  if (!config.anchorMode) return null;
+
+  const svg = container.querySelector('svg');
+  if (!svg) return null;
+
+  const allElements = svg.querySelectorAll('*');
   const horizontalLines: Array<{ el: SVGGraphicsElement; bbox: DOMRect; tag: string }> = [];
-  
+
   allElements.forEach((elem) => {
     const el = elem as SVGGraphicsElement;
     const tag = el.tagName.toLowerCase();
-    
-    // 只处理可能的线条元素
-    if (tag !== 'line' && tag !== 'path' && tag !== 'rect' && tag !== 'polygon') {
-      return;
-    }
-    
+    if (tag !== 'line' && tag !== 'path' && tag !== 'rect' && tag !== 'polygon') return;
+
     let bbox: DOMRect | null = null;
-    try {
-      bbox = el.getBBox();
-    } catch {
-      return;
-    }
+    try { bbox = el.getBBox(); } catch { return; }
     if (!bbox) return;
 
-    // 检测是否为水平线（五线谱线条）- 放宽条件
-    // path 元素可能包含多个线段，bbox 可能比较大
-    const isHorizontal = bbox.height < 15 && bbox.width > 100;
-    if (isHorizontal) {
+    if (bbox.height < 15 && bbox.width > 100) {
       horizontalLines.push({ el, bbox, tag });
     }
   });
 
-  console.log('[Anchor] Horizontal lines found:', horizontalLines.length);
-  
-  // 打印前 10 个水平线的信息
-  horizontalLines.slice(0, 10).forEach((item, i) => {
-    console.log(`[Anchor] Line ${i}: tag=${item.tag}, y=${item.bbox.y}, height=${item.bbox.height}, width=${item.bbox.width}`);
-  });
-
-  // 按宽度降序排序（五线谱线条应该是最长的）
+  // 按宽度降序排序
   horizontalLines.sort((a, b) => b.bbox.width - a.bbox.width);
 
-  // 找到五线谱的 5 条主线（连续的 5 条线）
-  // 五线谱的 5 条线应该是等间距的
   let staffLines: Array<{ el: SVGGraphicsElement; bbox: DOMRect }> = [];
-  
-  // 方法1：尝试找到等间距的 5 条线
+
+  // 寻找等间距的 5 条线
   for (let i = 0; i < horizontalLines.length - 4; i++) {
     const lines = horizontalLines.slice(i, i + 5);
     const spacings = [
@@ -157,41 +300,24 @@ export function applyAnchorColors(
       lines[3].bbox.y - lines[2].bbox.y,
       lines[4].bbox.y - lines[3].bbox.y,
     ];
-    
-    // 检查间距是否大致相等（允许 70% 误差，更宽松）
+
     const avgSpacing = spacings.reduce((a, b) => a + b, 0) / 4;
     const isUniform = spacings.every(s => Math.abs(s - avgSpacing) < avgSpacing * 0.7);
-    
-    console.log('[Anchor] Checking lines at Y:', lines.map(l => l.bbox.y), 'spacings:', spacings, 'avg:', avgSpacing, 'uniform:', isUniform);
-    
+
     if (isUniform && avgSpacing > 2 && avgSpacing < 200) {
       staffLines.push(...lines);
-      console.log('[Anchor] Found staff lines!');
-      break; // 找到第一组五线谱就停止
+      break;
     }
   }
-  
-  // 方法2：如果没找到，直接取前 5 条线（假设它们就是五线谱）
+
   if (staffLines.length === 0 && horizontalLines.length >= 5) {
     staffLines = horizontalLines.slice(0, 5);
-    console.log('[Anchor] Using first 5 lines as staff');
   }
 
-  // 按 Y 坐标排序，确保从上到下
   staffLines.sort((a, b) => a.bbox.y - b.bbox.y);
 
-  console.log('[Anchor] Staff lines found:', staffLines.length);
-  staffLines.forEach((line, i) => {
-    console.log(`[Anchor] Line ${i + 1}: y=${line.bbox.y.toFixed(1)}, width=${line.bbox.width.toFixed(1)}`);
-  });
+  let anchorLinesApplied = 0;
 
-  const debugResult = {
-    totalElements: allElements.length,
-    horizontalLinesCount: horizontalLines.length,
-    staffLinesFound: staffLines.length,
-  };
-
-  // 如果找到了五线谱线条，直接插入新的彩色线条
   if (staffLines.length >= 5) {
     const thirdLineY = staffLines[2].bbox.y;
     const spacing = staffLines[1].bbox.y - staffLines[0].bbox.y;
@@ -199,15 +325,9 @@ export function applyAnchorColors(
     const bottomLineY = staffLines[4].bbox.y;
     const upperLedgerY = topLineY - spacing;
     const lowerLedgerY = bottomLineY + spacing;
-    
-    console.log('[Anchor] Third line Y:', thirdLineY, 'Spacing:', spacing);
-    console.log('[Anchor] Upper ledger Y:', upperLedgerY, 'Lower ledger Y:', lowerLedgerY);
-    
-    // 获取 SVG 的 viewBox 宽度
     const svgNS = 'http://www.w3.org/2000/svg';
-    const svgWidth = svg.viewBox.baseVal.width || svg.clientWidth || 1000;
-    
-    // 创建红色线（第三线）- 实线，插入到最底层避免挡住文字
+    const svgWidth = svg.viewBox?.baseVal?.width || svg.clientWidth || 1000;
+
     const redLine = document.createElementNS(svgNS, 'line');
     redLine.setAttribute('x1', '0');
     redLine.setAttribute('y1', String(thirdLineY));
@@ -216,11 +336,10 @@ export function applyAnchorColors(
     redLine.setAttribute('stroke', '#FF0000');
     redLine.setAttribute('stroke-width', '3');
     redLine.setAttribute('stroke-opacity', '0.7');
-    // 插入到最前面，作为背景层
+    redLine.dataset.anchorLine = 'middle';
     svg.insertBefore(redLine, svg.firstChild);
-    console.log('[Anchor] Added red line at Y:', thirdLineY);
-    
-    // 创建蓝色线（上加一线）- 虚线
+    anchorLinesApplied++;
+
     const blueLine = document.createElementNS(svgNS, 'line');
     blueLine.setAttribute('x1', '0');
     blueLine.setAttribute('y1', String(upperLedgerY));
@@ -230,13 +349,10 @@ export function applyAnchorColors(
     blueLine.setAttribute('stroke-width', '3');
     blueLine.setAttribute('stroke-opacity', '0.9');
     blueLine.setAttribute('stroke-dasharray', '8,4');
-    blueLine.style.stroke = ANCHOR_COLORS.upperLedger;
-    blueLine.style.strokeWidth = '3px';
-    blueLine.style.strokeOpacity = '0.9';
+    blueLine.dataset.anchorLine = 'upperLedger';
     svg.appendChild(blueLine);
-    console.log('[Anchor] Added blue line at Y:', upperLedgerY);
-    
-    // 创建绿色线（下加一线）- 虚线
+    anchorLinesApplied++;
+
     const greenLine = document.createElementNS(svgNS, 'line');
     greenLine.setAttribute('x1', '0');
     greenLine.setAttribute('y1', String(lowerLedgerY));
@@ -246,34 +362,16 @@ export function applyAnchorColors(
     greenLine.setAttribute('stroke-width', '3');
     greenLine.setAttribute('stroke-opacity', '0.9');
     greenLine.setAttribute('stroke-dasharray', '8,4');
-    greenLine.style.stroke = ANCHOR_COLORS.lowerLedger;
-    greenLine.style.strokeWidth = '3px';
-    greenLine.style.strokeOpacity = '0.9';
+    greenLine.dataset.anchorLine = 'lowerLedger';
     svg.appendChild(greenLine);
-    console.log('[Anchor] Added green line at Y:', lowerLedgerY);
+    anchorLinesApplied++;
   }
 
-  return debugResult;
-}
-
-/**
- * 对 SVG 元素应用颜色
- */
-function applyColor(el: SVGElement, color: string): void {
-  const tag = el.tagName.toLowerCase();
-  if (tag === 'line' || tag === 'path') {
-    // 使用 style 属性强制覆盖，避免被 CSS 覆盖
-    el.setAttribute('stroke', color);
-    el.setAttribute('stroke-width', '3');
-    el.setAttribute('stroke-opacity', '1');
-    
-    // 同时设置 style 属性，确保优先级最高
-    el.style.stroke = color;
-    el.style.strokeWidth = '3px';
-    el.style.strokeOpacity = '1';
-    
-    console.log('[Anchor] Applied color to', tag);
-  }
+  return {
+    totalElements: allElements.length,
+    staffLinesFound: staffLines.length,
+    anchorLinesApplied,
+  };
 }
 
 /**

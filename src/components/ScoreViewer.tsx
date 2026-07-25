@@ -124,16 +124,16 @@ export default function ScoreViewer({
           svg.style.transformOrigin = 'top left';
         }
 
-        if (config.anchorMode && containerRef.current) {
+        if (config.anchorMode && osmdRef.current && containerRef.current) {
           await new Promise(resolve => setTimeout(resolve, 1000));
           requestAnimationFrame(() => {
-            if (containerRef.current) {
+            if (osmdRef.current && containerRef.current) {
               console.log('[ScoreViewer] Calling applyAnchorColors...');
-              const anchorResult = applyAnchorColors(containerRef.current, config);
+              const anchorResult = applyAnchorColors(osmdRef.current, containerRef.current, config);
               console.log('[ScoreViewer] Anchor colors applied:', anchorResult);
               
               if (anchorResult) {
-                setDebugInfo(`SVG: ${anchorResult.totalElements} elements | Lines: ${anchorResult.horizontalLinesCount}, Staff: ${anchorResult.staffLinesFound}`);
+                setDebugInfo(`StaffLines: ${anchorResult.staffLinesFound} groups | Anchor: ${anchorResult.anchorLinesApplied} lines`);
               }
             }
           });
@@ -165,10 +165,10 @@ export default function ScoreViewer({
         if (width > 0 && height > 0 && osmdRef.current) {
           console.log('[ScoreViewer] Container resized:', width, height);
           loadAndRender(osmdRef.current, musicXml, config.zoom).then(() => {
-            if (containerRef.current && config.anchorMode) {
+            if (osmdRef.current && containerRef.current && config.anchorMode) {
               requestAnimationFrame(() => {
-                if (containerRef.current) {
-                  applyAnchorColors(containerRef.current, config);
+                if (osmdRef.current && containerRef.current) {
+                  applyAnchorColors(osmdRef.current, containerRef.current, config);
                 }
               });
             }
@@ -207,14 +207,13 @@ export default function ScoreViewer({
         const svg = containerRef.current.querySelector('svg');
         if (svg) {
           if (newConfig.anchorMode) {
-            applyAnchorColors(containerRef.current, newConfig);
+              if (osmdRef.current) {
+                applyAnchorColors(osmdRef.current, containerRef.current, newConfig);
+              }
           } else {
-            const lines = svg.querySelectorAll('line, path');
-            lines.forEach((line) => {
-              const el = line as SVGElement;
-              el.removeAttribute('stroke');
-              el.removeAttribute('stroke-width');
-            });
+            // 只移除我们添加的三色锚线（通过 data-anchor-line 标记）
+            const anchorLines = svg.querySelectorAll('[data-anchor-line]');
+            anchorLines.forEach((line) => line.remove());
           }
         }
       }
