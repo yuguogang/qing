@@ -140,8 +140,13 @@ export default function ScoreViewer({
               }
               
               console.log('[ScoreViewer] Calling applyAnchorColors...');
-              applyAnchorColors(containerRef.current, config);
-              console.log('[ScoreViewer] Anchor colors applied');
+              const anchorResult = applyAnchorColors(containerRef.current, config);
+              console.log('[ScoreViewer] Anchor colors applied:', anchorResult);
+              
+              // 更新调试信息
+              if (anchorResult) {
+                setDebugInfo(`SVG: ${anchorResult.totalElements} elements | Lines: ${anchorResult.horizontalLinesCount}, Staff: ${anchorResult.staffLinesFound}`);
+              }
             }
           });
         }

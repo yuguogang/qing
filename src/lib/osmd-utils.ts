@@ -84,13 +84,17 @@ export async function loadAndRender(
 export function applyAnchorColors(
   container: HTMLElement,
   config: OsmdConfig,
-): void {
-  if (!config.anchorMode) return;
+): {
+  totalElements: number;
+  horizontalLinesCount: number;
+  staffLinesFound: number;
+} | null {
+  if (!config.anchorMode) return null;
 
   const svg = container.querySelector('svg');
   if (!svg) {
     console.log('[Anchor] No SVG found');
-    return;
+    return null;
   }
 
   console.log('[Anchor] SVG found, viewBox:', svg.viewBox?.baseVal);
@@ -141,6 +145,36 @@ export function applyAnchorColors(
   // 找到五线谱的 5 条主线（连续的 5 条线）
   // 五线谱的 5 条线应该是等间距的
   const staffLines: Array<{ el: SVGGraphicsElement; bbox: DOMRect }> = [];
+  
+  for (let i = 0; i < horizontalLines.length - 4; i++) {
+    const lines = horizontalLines.slice(i, i + 5);
+    const spacings = [
+      lines[1].bbox.y - lines[0].bbox.y,
+      lines[2].bbox.y - lines[1].bbox.y,
+      lines[3].bbox.y - lines[2].bbox.y,
+      lines[4].bbox.y - lines[3].bbox.y,
+    ];
+    
+    // 检查间距是否大致相等（允许 30% 误差）
+    const avgSpacing = spacings.reduce((a, b) => a + b, 0) / 4;
+    const isUniform = spacings.every(s => Math.abs(s - avgSpacing) < avgSpacing * 0.3);
+    
+    console.log('[Anchor] Checking lines at Y:', lines.map(l => l.bbox.y), 'spacings:', spacings, 'avg:', avgSpacing, 'uniform:', isUniform);
+    
+    if (isUniform && avgSpacing > 3 && avgSpacing < 100) {
+      staffLines.push(...lines);
+      console.log('[Anchor] Found staff lines!');
+      break; // 找到第一组五线谱就停止
+    }
+  }
+
+  console.log('[Anchor] Staff lines found:', staffLines.length);
+
+  const debugResult = {
+    totalElements: allElements.length,
+    horizontalLinesCount: horizontalLines.length,
+    staffLinesFound: staffLines.length,
+  };
   
   for (let i = 0; i < horizontalLines.length - 4; i++) {
     const lines = horizontalLines.slice(i, i + 5);
@@ -251,6 +285,8 @@ export function applyAnchorColors(
       console.log('[Anchor] Simple approach applied');
     }
   }
+
+  return debugResult;
 }
 
 /**
