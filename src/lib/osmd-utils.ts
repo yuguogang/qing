@@ -136,8 +136,9 @@ function applyColor(el: SVGElement, color: string): void {
     el.setAttribute('stroke', color);
     el.setAttribute('stroke-width', '2');
   } else if (tag === 'path') {
+    // 只设置 stroke，不修改 fill，避免隐藏线条
     el.setAttribute('stroke', color);
-    el.setAttribute('fill', 'none');
+    el.setAttribute('stroke-width', '2');
   }
 }
 
