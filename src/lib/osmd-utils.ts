@@ -91,9 +91,12 @@ export function applyAnchorColors(
   if (!svg) return;
 
   // 获取所有线条元素
-  const lines = svg.querySelectorAll('line, path');
-
-  lines.forEach((line) => {
+  const allLines = svg.querySelectorAll('line, path');
+  
+  // 过滤出水平线条（五线谱线条）
+  const horizontalLines: Array<{ el: SVGGraphicsElement; bbox: DOMRect }> = [];
+  
+  allLines.forEach((line) => {
     const el = line as SVGGraphicsElement;
     let bbox: DOMRect | null = null;
     try {
@@ -104,27 +107,66 @@ export function applyAnchorColors(
     if (!bbox) return;
 
     // 检测是否为水平线（五线谱线条）
-    const isHorizontal = bbox.height < 2 && bbox.width > 20;
-    if (!isHorizontal) return;
-
-    // 根据 Y 坐标判断线条类型并着色
-    const y = bbox.y;
-    const svgHeight = svg.viewBox?.baseVal?.height || 1000;
-    const relativeY = y / svgHeight;
-
-    // 第三线大约在谱表中间位置
-    if (Math.abs(relativeY - 0.5) < 0.02) {
-      applyColor(el, ANCHOR_COLORS.middleLine);
-    }
-    // 上加一线在谱表上方
-    else if (relativeY < 0.15) {
-      applyColor(el, ANCHOR_COLORS.upperLedger);
-    }
-    // 下加一线在谱表下方
-    else if (relativeY > 0.85) {
-      applyColor(el, ANCHOR_COLORS.lowerLedger);
+    const isHorizontal = bbox.height < 3 && bbox.width > 30;
+    if (isHorizontal) {
+      horizontalLines.push({ el, bbox });
     }
   });
+
+  // 按 Y 坐标排序
+  horizontalLines.sort((a, b) => a.bbox.y - b.bbox.y);
+
+  // 找到五线谱的 5 条主线（连续的 5 条线）
+  // 五线谱的 5 条线应该是等间距的
+  const staffLines: Array<{ el: SVGGraphicsElement; bbox: DOMRect }> = [];
+  
+  for (let i = 0; i < horizontalLines.length - 4; i++) {
+    const lines = horizontalLines.slice(i, i + 5);
+    const spacings = [
+      lines[1].bbox.y - lines[0].bbox.y,
+      lines[2].bbox.y - lines[1].bbox.y,
+      lines[3].bbox.y - lines[2].bbox.y,
+      lines[4].bbox.y - lines[3].bbox.y,
+    ];
+    
+    // 检查间距是否大致相等（允许 20% 误差）
+    const avgSpacing = spacings.reduce((a, b) => a + b, 0) / 4;
+    const isUniform = spacings.every(s => Math.abs(s - avgSpacing) < avgSpacing * 0.3);
+    
+    if (isUniform && avgSpacing > 5 && avgSpacing < 50) {
+      staffLines.push(...lines);
+      break; // 找到第一组五线谱就停止
+    }
+  }
+
+  // 如果找到了五线谱线条，应用颜色
+  if (staffLines.length >= 5) {
+    // 第三线（中间那条）- 红色
+    if (staffLines[2]) {
+      applyColor(staffLines[2].el, ANCHOR_COLORS.middleLine);
+    }
+    
+    // 查找上加一线（在五线谱上方）
+    const topLineY = staffLines[0].bbox.y;
+    const spacing = staffLines[1].bbox.y - staffLines[0].bbox.y;
+    const upperLedgerY = topLineY - spacing;
+    
+    horizontalLines.forEach(({ el, bbox }) => {
+      if (Math.abs(bbox.y - upperLedgerY) < spacing * 0.5) {
+        applyColor(el, ANCHOR_COLORS.upperLedger);
+      }
+    });
+    
+    // 查找下加一线（在五线谱下方）
+    const bottomLineY = staffLines[4].bbox.y;
+    const lowerLedgerY = bottomLineY + spacing;
+    
+    horizontalLines.forEach(({ el, bbox }) => {
+      if (Math.abs(bbox.y - lowerLedgerY) < spacing * 0.5) {
+        applyColor(el, ANCHOR_COLORS.lowerLedger);
+      }
+    });
+  }
 }
 
 /**
