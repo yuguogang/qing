@@ -321,6 +321,12 @@ export default function ScoreViewer({
           </div>
         )}
 
+        {debugInfo && (
+          <div className="absolute top-2 right-2 bg-yellow-100 border border-yellow-300 rounded px-2 py-1 text-xs font-mono z-20">
+            {debugInfo}
+          </div>
+        )}
+
         <div
           ref={containerRef}
           className="w-full relative"
