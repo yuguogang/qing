@@ -129,7 +129,7 @@ export default function ScoreViewer({
           requestAnimationFrame(() => {
             if (osmdRef.current && containerRef.current) {
               console.log('[ScoreViewer] Calling applyAnchorColors...');
-              const anchorResult = applyAnchorColors(osmdRef.current, containerRef.current, config);
+              const anchorResult = applyAnchorColors(containerRef.current, config);
               console.log('[ScoreViewer] Anchor colors applied:', anchorResult);
               
               if (anchorResult) {
@@ -168,7 +168,7 @@ export default function ScoreViewer({
             if (osmdRef.current && containerRef.current && config.anchorMode) {
               requestAnimationFrame(() => {
                 if (osmdRef.current && containerRef.current) {
-                  applyAnchorColors(osmdRef.current, containerRef.current, config);
+                  applyAnchorColors(containerRef.current, config);
                 }
               });
             }
@@ -208,7 +208,7 @@ export default function ScoreViewer({
         if (svg) {
           if (newConfig.anchorMode) {
               if (osmdRef.current) {
-                applyAnchorColors(osmdRef.current, containerRef.current, newConfig);
+                applyAnchorColors(containerRef.current, newConfig);
               }
           } else {
             // 只移除我们添加的三色锚线（通过 data-anchor-line 标记）
