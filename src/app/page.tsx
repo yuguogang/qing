@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import ScoreViewer from "@/components/ScoreViewer";
 import { PracticeControls } from "@/components/PracticeControls";
 import { MIDIStatus } from "@/components/MIDIStatus";
@@ -10,6 +10,8 @@ import { useMIDI } from "@/hooks/useMIDI";
 import { midiToNoteName, calculateAccuracy } from "@/lib/note-matching";
 import type { MIDINoteEvent } from "@/hooks/useMIDI";
 import { beyerNo1Xml } from "@/lib/scores/beyer-no1";
+import { PianoAudioEngine } from "@/lib/audio-engine";
+import { parseMusicXMLNotes } from "@/lib/musicxml-parser";
 
 const SAMPLE_SCORES = [
   { id: "beyer-1", name: "拜厄 No.1", content: beyerNo1Xml },
@@ -21,11 +23,84 @@ export default function Home() {
   const [tempo, setTempo] = useState(80);
   const [volume, setVolume] = useState(80);
   const [currentMeasure, setCurrentMeasure] = useState(1);
+  const [totalMeasures, setTotalMeasures] = useState(8);
   const [anchorMode, setAnchorMode] = useState(true);
 
   // UI toggles
   const [showKeyboard, setShowKeyboard] = useState(true);
   const [showStats, setShowStats] = useState(true);
+
+  // 音频引擎
+  const audioEngineRef = useRef<PianoAudioEngine | null>(null);
+  const [parsedNotes, setParsedNotes] = useState<Array<{ midi: number; duration: number; startTime: number }>>([]);
+
+  // 初始化音频引擎
+  useEffect(() => {
+    const engine = new PianoAudioEngine();
+    audioEngineRef.current = engine;
+    return () => {
+      engine.stop();
+    };
+  }, []);
+
+  // 解析乐谱音符
+  useEffect(() => {
+    const notes = parseMusicXMLNotes(selectedScore.content);
+    setParsedNotes(notes);
+    // 计算总小节数（从解析的音符中获取最大小节号）
+    if (notes.length > 0) {
+      // 简单估算：每 4 个音符为 1 小节
+      const estimatedMeasures = Math.ceil(notes.length / 4);
+      setTotalMeasures(estimatedMeasures);
+    }
+  }, [selectedScore]);
+
+  // 播放伴奏
+  const playAccompaniment = useCallback(() => {
+    if (!audioEngineRef.current || parsedNotes.length === 0) return;
+
+    const engine = audioEngineRef.current;
+    const bpm = tempo;
+    const vol = volume / 100;
+
+    // 逐个播放音符
+    parsedNotes.forEach((note) => {
+      engine.playNote(note.midi, bpm, vol);
+    });
+
+    setIsPlaying(true);
+  }, [parsedNotes, tempo, volume]);
+
+  // 暂停伴奏
+  const stopAccompaniment = useCallback(() => {
+    if (audioEngineRef.current) {
+      audioEngineRef.current.stop();
+      setIsPlaying(false);
+    }
+  }, []);
+
+  // 处理播放/暂停
+  const handlePlayPause = useCallback(() => {
+    if (isPlaying) {
+      stopAccompaniment();
+    } else {
+      playAccompaniment();
+    }
+  }, [isPlaying, playAccompaniment, stopAccompaniment]);
+
+  // 处理速度变化
+  const handleTempoChange = useCallback((newTempo: number) => {
+    setTempo(newTempo);
+    // 速度变化时需要重新播放才能生效
+  }, []);
+
+  // 处理音量变化
+  const handleVolumeChange = useCallback((newVolume: number) => {
+    setVolume(newVolume);
+    if (audioEngineRef.current) {
+      audioEngineRef.current.setVolume(newVolume / 100);
+    }
+  }, []);
 
   // Practice stats
   const [correctNotes, setCorrectNotes] = useState(0);
@@ -242,19 +317,14 @@ export default function Home() {
         tempo={tempo}
         volume={volume}
         currentMeasure={currentMeasure}
-        totalMeasures={8}
-        onPlay={handlePlay}
-        onPause={handlePause}
+        totalMeasures={totalMeasures}
+        onPlay={handlePlayPause}
+        onPause={handlePlayPause}
         onRestart={handleRestart}
-        onTempoChange={setTempo}
-        onVolumeChange={setVolume}
+        onTempoChange={handleTempoChange}
+        onVolumeChange={handleVolumeChange}
         onMeasureChange={setCurrentMeasure}
       />
-
-      {/* 虚拟钢琴键盘 */}
-      <div className="bg-card border-t px-6 py-4">
-        <VirtualKeyboard onNotePlay={handleNotePlay} activeNotes={activeNotes} />
-      </div>
 
       {/* 底部信息 */}
       <footer className="bg-card border-t px-6 py-2 text-center">
