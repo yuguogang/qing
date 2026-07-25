@@ -249,7 +249,11 @@ export default function ScoreViewer({
         <div
           ref={containerRef}
           className="w-full"
-          style={{ display: loading || error ? 'none' : 'block', minHeight: '400px' }}
+          style={{ 
+            display: loading || error ? 'none' : 'block', 
+            minHeight: '400px',
+            overflow: 'visible'
+          }}
         />
       </div>
     </div>
