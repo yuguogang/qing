@@ -47,11 +47,18 @@ export function usePractice(
     lastDelta: 0,
   });
 
+  // 跟踪已加载的音符
+  const notesRef = useRef<PianoNote[]>([]);
+
   // 初始化控制器
   useEffect(() => {
     controllerRef.current = new PracticeController(mode, bpm);
     if (audioContext) {
       controllerRef.current.setAudioContext(audioContext);
+    }
+    // 重新加载音符（如果已有）
+    if (notesRef.current.length > 0) {
+      controllerRef.current.loadNotes(notesRef.current);
     }
 
     return () => {
@@ -68,6 +75,7 @@ export function usePractice(
 
   // 加载音符
   const loadNotes = useCallback((notes: PianoNote[]) => {
+    notesRef.current = notes;
     if (!controllerRef.current) return;
     controllerRef.current.loadNotes(notes);
     setState(prev => ({
