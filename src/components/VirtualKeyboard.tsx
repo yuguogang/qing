@@ -1,16 +1,10 @@
 "use client";
 
-import { useEffect, useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-interface VirtualKeyboardProps {
-  onNotePlay: (noteNumber: number) => void;
-  activeNotes?: Set<number>;
-}
-
-// 电脑键盘映射到 MIDI 音符（中央C=60）
-const KEY_MAP: Record<string, number> = {
-  // 白键 - 下排
-  a: 60, // C4 (中央C)
+// 白键 MIDI 映射 (A-K 键，从 C4=60 开始)
+const WHITE_KEY_MAP: Record<string, number> = {
+  a: 60, // C4
   s: 62, // D4
   d: 64, // E4
   f: 65, // F4
@@ -18,210 +12,148 @@ const KEY_MAP: Record<string, number> = {
   h: 69, // A4
   j: 71, // B4
   k: 72, // C5
-  l: 74, // D5
-  ";": 76, // E5
+};
 
-  // 黑键 - 上排
+// 黑键 MIDI 映射 (W-P 键)
+const BLACK_KEY_MAP: Record<string, number> = {
   w: 61, // C#4
   e: 63, // D#4
   t: 66, // F#4
   y: 68, // G#4
   u: 70, // A#4
-  o: 73, // C#5
-  p: 75, // D#5
+  p: 73, // C#5
 };
 
-// 音符名称映射
-const NOTE_NAMES: Record<number, string> = {
-  60: "C4",
-  61: "C#4",
-  62: "D4",
-  63: "D#4",
-  64: "E4",
-  65: "F4",
-  66: "F#4",
-  67: "G4",
-  68: "G#4",
-  69: "A4",
-  70: "A#4",
-  71: "B4",
-  72: "C5",
-  73: "C#5",
-  74: "D5",
-  75: "D#5",
-  76: "E5",
-};
-
-// 键盘布局定义
+// 键盘布局：白键 + 黑键
 interface KeyDef {
-  note: number;
-  type: "white" | "black";
-  key?: string;
+  midi: number;
+  isBlack: boolean;
   label: string;
+  keyLabel: string;
 }
 
-const KEYS: KeyDef[] = [
-  { note: 60, type: "white", key: "a", label: "C4" },
-  { note: 61, type: "black", key: "w", label: "C#4" },
-  { note: 62, type: "white", key: "s", label: "D4" },
-  { note: 63, type: "black", key: "e", label: "D#4" },
-  { note: 64, type: "white", key: "d", label: "E4" },
-  { note: 65, type: "white", key: "f", label: "F4" },
-  { note: 66, type: "black", key: "t", label: "F#4" },
-  { note: 67, type: "white", key: "g", label: "G4" },
-  { note: 68, type: "black", key: "y", label: "G#4" },
-  { note: 69, type: "white", key: "h", label: "A4" },
-  { note: 70, type: "black", key: "u", label: "A#4" },
-  { note: 71, type: "white", key: "j", label: "B4" },
-  { note: 72, type: "white", key: "k", label: "C5" },
-  { note: 73, type: "black", key: "o", label: "C#5" },
-  { note: 74, type: "white", key: "l", label: "D5" },
-  { note: 75, type: "black", key: "p", label: "D#5" },
-  { note: 76, type: "white", key: ";", label: "E5" },
+const PIANO_KEYS: KeyDef[] = [
+  { midi: 60, isBlack: false, label: "C4", keyLabel: "A" },
+  { midi: 61, isBlack: true, label: "C#4", keyLabel: "W" },
+  { midi: 62, isBlack: false, label: "D4", keyLabel: "S" },
+  { midi: 63, isBlack: true, label: "D#4", keyLabel: "E" },
+  { midi: 64, isBlack: false, label: "E4", keyLabel: "D" },
+  { midi: 65, isBlack: false, label: "F4", keyLabel: "F" },
+  { midi: 66, isBlack: true, label: "F#4", keyLabel: "T" },
+  { midi: 67, isBlack: false, label: "G4", keyLabel: "G" },
+  { midi: 68, isBlack: true, label: "G#4", keyLabel: "Y" },
+  { midi: 69, isBlack: false, label: "A4", keyLabel: "H" },
+  { midi: 70, isBlack: true, label: "A#4", keyLabel: "U" },
+  { midi: 71, isBlack: false, label: "B4", keyLabel: "J" },
+  { midi: 72, isBlack: false, label: "C5", keyLabel: "K" },
+  { midi: 73, isBlack: true, label: "C#5", keyLabel: "P" },
 ];
 
-export function VirtualKeyboard({ onNotePlay, activeNotes = new Set() }: VirtualKeyboardProps) {
-  const [pressedKeys, setPressedKeys] = useState<Set<string>>(new Set());
+interface VirtualKeyboardProps {
+  onNotePlay: (midiNote: number) => void;
+  activeNotes: Set<number>;
+}
 
-  // 处理音符触发
-  const handleNoteTrigger = useCallback(
-    (noteNumber: number) => {
-      onNotePlay(noteNumber);
-    },
-    [onNotePlay],
-  );
+export function VirtualKeyboard({ onNotePlay, activeNotes }: VirtualKeyboardProps) {
+  const [pressedKeys, setPressedKeys] = useState<Set<number>>(new Set());
 
-  // 鼠标点击触发
-  const handleMouseDown = useCallback(
-    (note: number) => {
-      handleNoteTrigger(note);
-    },
-    [handleNoteTrigger],
-  );
-
-  // 电脑键盘按下
+  // 键盘事件
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.repeat) return;
-
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       const key = e.key.toLowerCase();
-      const note = KEY_MAP[key];
-
-      if (note !== undefined) {
+      const midi = WHITE_KEY_MAP[key] ?? BLACK_KEY_MAP[key];
+      if (midi !== undefined) {
         e.preventDefault();
-        setPressedKeys((prev) => new Set(prev).add(key));
-        handleNoteTrigger(note);
+        setPressedKeys((prev) => new Set(prev).add(midi));
+        onNotePlay(midi);
       }
     };
-
     const handleKeyUp = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
-      setPressedKeys((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      });
+      const midi = WHITE_KEY_MAP[key] ?? BLACK_KEY_MAP[key];
+      if (midi !== undefined) {
+        setPressedKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(midi);
+          return next;
+        });
+      }
     };
-
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
-
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [handleNoteTrigger]);
+  }, [onNotePlay]);
 
-  // 分离白键和黑键
-  const whiteKeys = KEYS.filter((k) => k.type === "white");
-  const blackKeys = KEYS.filter((k) => k.type === "black");
+  // 鼠标点击
+  const handleMouseDown = useCallback(
+    (midi: number) => {
+      setPressedKeys((prev) => new Set(prev).add(midi));
+      onNotePlay(midi);
+    },
+    [onNotePlay]
+  );
 
-  // 计算黑键位置（相对于白键）
-  const getBlackKeyPosition = (note: number): number => {
-    const whiteKeyWidth = 100 / whiteKeys.length;
-    const whiteKeyIndex = whiteKeys.findIndex((k) => {
-      const nextWhite = whiteKeys[whiteKeys.indexOf(k) + 1];
-      return note > k.note && (!nextWhite || note < nextWhite.note);
+  const handleMouseUp = useCallback((midi: number) => {
+    setPressedKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(midi);
+      return next;
     });
-    return whiteKeyIndex * whiteKeyWidth + whiteKeyWidth * 0.65;
-  };
+  }, []);
+
+  const isActive = (midi: number) => activeNotes.has(midi) || pressedKeys.has(midi);
 
   return (
-    <div className="w-full">
-      <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-        <span>虚拟钢琴键盘</span>
-        <span>用鼠标点击或电脑键盘弹奏（A-K 白键，W-P 黑键）</span>
-      </div>
-
-      <div className="relative mx-auto w-full max-w-4xl" style={{ height: "clamp(120px, 20vh, 200px)" }}>
-        {/* 白键 */}
-        <div className="absolute inset-0 flex">
-          {whiteKeys.map((key) => {
-            const isActive = activeNotes.has(key.note);
-            const isPressed = pressedKeys.has(key.key || "");
-
-            return (
-              <button
-                key={key.note}
-                onMouseDown={() => handleMouseDown(key.note)}
-                className={`relative flex-1 border border-gray-300 rounded-b-md transition-colors ${
-                  isActive || isPressed
-                    ? "bg-blue-200 border-blue-400"
-                    : "bg-white hover:bg-gray-50"
-                }`}
-                style={{ height: "100%" }}
-              >
-                <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] text-gray-500">
-                  {key.key?.toUpperCase()}
-                </span>
-                <span className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[10px] text-gray-400">
-                  {key.label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* 黑键 */}
-        {blackKeys.map((key) => {
-          const isActive = activeNotes.has(key.note);
-          const isPressed = pressedKeys.has(key.key || "");
-          const left = getBlackKeyPosition(key.note);
-
+    <div className="flex h-full items-end relative" style={{ paddingLeft: 2, paddingRight: 2 }}>
+      {PIANO_KEYS.map((key) => {
+        if (key.isBlack) {
           return (
-            <button
-              key={key.note}
-              onMouseDown={() => handleMouseDown(key.note)}
-              className={`absolute top-0 w-[8%] rounded-b-md transition-colors z-10 ${
-                isActive || isPressed
-                  ? "bg-blue-600 border-blue-700"
+            <div
+              key={key.midi}
+              onMouseDown={() => handleMouseDown(key.midi)}
+              onMouseUp={() => handleMouseUp(key.midi)}
+              onMouseLeave={() => handleMouseUp(key.midi)}
+              className={`absolute z-10 rounded-b cursor-pointer transition-colors duration-75 ${
+                isActive(key.midi)
+                  ? "bg-primary"
                   : "bg-gray-900 hover:bg-gray-800"
               }`}
-              style={{ left: `${left}%`, height: "60%" }}
+              style={{
+                width: "5.5%",
+                height: "62%",
+                left: `${PIANO_KEYS.findIndex((k) => k.midi === key.midi) * (100 / PIANO_KEYS.length) + (100 / PIANO_KEYS.length) * 0.65}%`,
+              }}
+              title={`${key.label} (${key.keyLabel})`}
             >
-              <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] text-gray-300">
-                {key.key?.toUpperCase()}
+              <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[8px] text-gray-500 select-none">
+                {key.keyLabel}
               </span>
-            </button>
+            </div>
           );
-        })}
-      </div>
-
-      {/* 图例 */}
-      <div className="mt-2 flex items-center justify-center gap-4 text-xs text-muted-foreground">
-        <div className="flex items-center gap-1">
-          <div className="h-3 w-3 rounded bg-white border border-gray-300"></div>
-          <span>白键（自然音）</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="h-3 w-3 rounded bg-gray-900"></div>
-          <span>黑键（升降音）</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <div className="h-3 w-3 rounded bg-blue-200 border border-blue-400"></div>
-          <span>当前音符</span>
-        </div>
-      </div>
+        }
+        return (
+          <div
+            key={key.midi}
+            onMouseDown={() => handleMouseDown(key.midi)}
+            onMouseUp={() => handleMouseUp(key.midi)}
+            onMouseLeave={() => handleMouseUp(key.midi)}
+            className={`flex-1 border border-gray-300 rounded-b cursor-pointer transition-colors duration-75 flex items-end justify-center pb-1 ${
+              isActive(key.midi)
+                ? "bg-primary/30 border-primary"
+                : "bg-white hover:bg-gray-100"
+            }`}
+            style={{ minWidth: 0 }}
+            title={`${key.label} (${key.keyLabel})`}
+          >
+            <span className="text-[9px] text-gray-400 select-none">{key.keyLabel}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

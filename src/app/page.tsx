@@ -1,13 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Music } from "lucide-react";
 import ScoreViewer from "@/components/ScoreViewer";
-import { PracticeControls } from "@/components/PracticeControls";
-import { MIDIStatus } from "@/components/MIDIStatus";
-import { PracticeStatsPanel } from "@/components/PracticeStats";
 import { VirtualKeyboard } from "@/components/VirtualKeyboard";
-import { ResizableSplit } from "@/components/ResizableSplit";
 import { useMIDI } from "@/hooks/useMIDI";
 import { usePractice, type PracticeMode } from "@/hooks/use-practice";
 import { midiToNoteName } from "@/lib/note-matching";
@@ -15,55 +10,274 @@ import type { MIDINoteEvent } from "@/hooks/useMIDI";
 import { beyerNo1Xml } from "@/lib/scores/beyer-no1";
 import { PianoAudioEngine, type PianoNote } from "@/lib/audio-engine";
 import { parseMusicXMLNotes } from "@/lib/musicxml-parser";
-import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 
+// ===== 常量 =====
 const SAMPLE_SCORES = [
   { id: "beyer-1", name: "拜厄 No.1", content: beyerNo1Xml },
 ];
 
+type DisplayMode = "standard" | "anchor" | "spectrum";
+
+// ===== 子组件 =====
+
+/** 顶部控制栏 */
+function TopBar({
+  collapsed,
+  onToggle,
+  selectedScore,
+  scores,
+  onScoreChange,
+  displayMode,
+  onDisplayModeChange,
+  practiceMode,
+  onPracticeModeChange,
+  tempo,
+  onTempoChange,
+  zoom,
+  onZoomChange,
+  isPlaying,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  selectedScore: typeof SAMPLE_SCORES[0];
+  scores: typeof SAMPLE_SCORES;
+  onScoreChange: (score: typeof SAMPLE_SCORES[0]) => void;
+  displayMode: DisplayMode;
+  onDisplayModeChange: (mode: DisplayMode) => void;
+  practiceMode: PracticeMode;
+  onPracticeModeChange: (mode: PracticeMode) => void;
+  tempo: number;
+  onTempoChange: (t: number) => void;
+  zoom: number;
+  onZoomChange: (z: number) => void;
+  isPlaying: boolean;
+}) {
+  return (
+    <div className={`collapsible-panel bg-card border-b ${collapsed ? "collapsed" : ""}`} style={{ height: collapsed ? 8 : 48 }}>
+      <div className="collapse-toggle" onClick={onToggle} title="展开控制栏" />
+      {!collapsed && (
+        <div className="flex items-center justify-between h-full px-4 gap-3">
+          {/* Logo */}
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="w-7 h-7 bg-gradient-to-br from-amber-500 via-orange-500 to-red-500 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold text-xs">清</span>
+            </div>
+            <span className="text-sm font-semibold text-foreground">清谱</span>
+          </div>
+
+          {/* 曲谱选择 */}
+          <select
+            value={selectedScore.id}
+            onChange={(e) => {
+              const s = scores.find((x) => x.id === e.target.value);
+              if (s) onScoreChange(s);
+            }}
+            className="px-2 py-1 text-xs border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary shrink-0"
+          >
+            {scores.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+
+          {/* 显示模式 */}
+          <div className="flex items-center rounded-lg border p-0.5 shrink-0">
+            {(["standard", "anchor", "spectrum"] as DisplayMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => onDisplayModeChange(m)}
+                className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                  displayMode === m
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-secondary"
+                }`}
+              >
+                {{ standard: "标准", anchor: "锚线", spectrum: "七色" }[m]}
+              </button>
+            ))}
+          </div>
+
+          {/* 练习模式 */}
+          <div className="flex items-center rounded-lg border p-0.5 shrink-0">
+            {(["follow", "sight"] as PracticeMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => onPracticeModeChange(m)}
+                className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                  practiceMode === m
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-secondary"
+                }`}
+              >
+                {{ follow: "跟弹", sight: "视奏" }[m]}
+              </button>
+            ))}
+          </div>
+
+          {/* BPM */}
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-xs text-muted-foreground">BPM</span>
+            <input
+              type="range"
+              min={30}
+              max={200}
+              value={tempo}
+              onChange={(e) => onTempoChange(Number(e.target.value))}
+              className="w-20 h-1 accent-primary"
+              disabled={isPlaying}
+            />
+            <span className="text-xs font-mono w-8 text-right">{tempo}</span>
+          </div>
+
+          {/* 缩放 */}
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-xs text-muted-foreground">缩放</span>
+            <input
+              type="range"
+              min={50}
+              max={200}
+              value={Math.round(zoom * 100)}
+              onChange={(e) => onZoomChange(Number(e.target.value) / 100)}
+              className="w-16 h-1 accent-primary"
+            />
+            <span className="text-xs font-mono w-10 text-right">{Math.round(zoom * 100)}%</span>
+          </div>
+
+          {/* 折叠按钮 */}
+          <button
+            onClick={onToggle}
+            className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            title="折叠控制栏"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+            </svg>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 底部统计条 */
+function StatsBar({
+  combo,
+  perfect,
+  good,
+  miss,
+  accuracy,
+  isPlaying,
+}: {
+  combo: number;
+  perfect: number;
+  good: number;
+  miss: number;
+  accuracy: number;
+  isPlaying: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-center gap-6 px-4 py-1.5 bg-card border-t text-xs" style={{ height: 32 }}>
+      <span className="stat-item">
+        连击: <span className="font-bold text-primary">{combo}</span>
+      </span>
+      <span className="stat-item">
+        完美: <span className="font-bold text-yellow-600">{perfect}</span>
+      </span>
+      <span className="stat-item">
+        良好: <span className="font-bold text-green-600">{good}</span>
+      </span>
+      <span className="stat-item">
+        偏差: <span className="font-bold text-red-500">{miss}</span>
+      </span>
+      <span className="stat-item">
+        准确率: <span className="font-bold">{accuracy.toFixed(1)}%</span>
+      </span>
+      {isPlaying && (
+        <span className="flex items-center gap-1 text-green-600">
+          <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+          演奏中
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** 底部虚拟键盘面板 */
+function KeyboardPanel({
+  collapsed,
+  onToggle,
+  onNotePlay,
+  activeNotes,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  onNotePlay: (n: number) => void;
+  activeNotes: Set<number>;
+}) {
+  return (
+    <div className={`collapsible-panel bg-card border-t ${collapsed ? "collapsed" : ""}`} style={{ height: collapsed ? 8 : 120 }}>
+      <div className="collapse-toggle" onClick={onToggle} title="展开虚拟键盘" />
+      {!collapsed && (
+        <div className="flex flex-col h-full">
+          <div className="flex items-center justify-between px-3 py-1 border-b">
+            <span className="text-xs font-medium text-muted-foreground">虚拟键盘</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">A-K 白键 · W-P 黑键</span>
+              <button
+                onClick={onToggle}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                title="折叠键盘"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 px-2 py-1 overflow-hidden">
+            <VirtualKeyboard
+              onNotePlay={onNotePlay}
+              activeNotes={activeNotes}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== 主页面 =====
 export default function Home() {
   const [selectedScore, setSelectedScore] = useState(SAMPLE_SCORES[0]);
   const [tempo, setTempo] = useState(80);
   const [volume, setVolume] = useState(80);
-  const [totalMeasures, setTotalMeasures] = useState(8);
-  const [anchorMode, setAnchorMode] = useState(true);
-  const [practiceMode, setPracticeMode] = useState<PracticeMode>('follow');
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("anchor");
+  const [practiceMode, setPracticeMode] = useState<PracticeMode>("follow");
+  const [zoom, setZoom] = useState(1);
 
-  // UI toggles
-  const [showKeyboard, setShowKeyboard] = useState(true);
-  const [showStats, setShowStats] = useState(true);
+  // 折叠状态
+  const [topCollapsed, setTopCollapsed] = useState(false);
+  const [keyboardCollapsed, setKeyboardCollapsed] = useState(false);
 
   // 音频引擎
   const audioEngineRef = useRef<PianoAudioEngine | null>(null);
   const [parsedNotes, setParsedNotes] = useState<PianoNote[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  // 初始化音频引擎
   useEffect(() => {
     const engine = new PianoAudioEngine();
     audioEngineRef.current = engine;
     audioContextRef.current = engine.getAudioContext();
-    return () => {
-      engine.stop();
-    };
+    return () => { engine.stop(); };
   }, []);
 
-  // 解析乐谱音符
   useEffect(() => {
     const notes = parseMusicXMLNotes(selectedScore.content);
     setParsedNotes(notes);
-    // 计算总小节数（从解析的音符中获取最大小节号）
-    if (notes.length > 0) {
-      const estimatedMeasures = Math.ceil(notes.length / 4);
-      setTotalMeasures(estimatedMeasures);
-    }
   }, [selectedScore]);
 
-  // 使用练习模式 hook
   const [audioContextState, setAudioContextState] = useState<AudioContext | null>(null);
-  
+
   const {
     state: practiceState,
     setOSMD,
@@ -75,41 +289,29 @@ export default function Home() {
     reset,
   } = usePractice(practiceMode, tempo, audioContextState);
 
-  // 同步 audioContext 到 state
   useEffect(() => {
     setAudioContextState(audioContextRef.current);
   }, []);
 
-  // 加载音符到练习控制器
   useEffect(() => {
-    if (parsedNotes.length > 0) {
-      loadNotes(parsedNotes);
-    }
+    if (parsedNotes.length > 0) loadNotes(parsedNotes);
   }, [parsedNotes, loadNotes]);
 
-  // OSMD 实例准备就绪的回调
   const handleOsmdReady = useCallback((osmd: OpenSheetMusicDisplay) => {
-    console.log('[Home] OSMD ready, setting to practice controller');
     setOSMD(osmd);
   }, [setOSMD]);
 
-  // 跟踪伴奏定时器
+  // 伴奏
   const accompanimentTimeoutsRef = useRef<number[]>([]);
 
-  // 播放伴奏（跟弹模式）
   const playAccompaniment = useCallback(() => {
     if (!audioEngineRef.current || parsedNotes.length === 0) return;
-
     const engine = audioEngineRef.current;
     const bpm = tempo;
     const vol = volume / 100;
     const secondsPerBeat = 60 / bpm;
-
-    // 清除之前的定时器
     accompanimentTimeoutsRef.current.forEach(id => clearTimeout(id));
     accompanimentTimeoutsRef.current = [];
-
-    // 按时间顺序调度音符
     parsedNotes.forEach((note) => {
       const delay = note.startTime * secondsPerBeat * 1000;
       const timeout = window.setTimeout(() => {
@@ -119,303 +321,168 @@ export default function Home() {
     });
   }, [parsedNotes, tempo, volume]);
 
-  // 停止伴奏
   const stopAccompaniment = useCallback(() => {
     accompanimentTimeoutsRef.current.forEach(id => clearTimeout(id));
     accompanimentTimeoutsRef.current = [];
     audioEngineRef.current?.stop();
   }, []);
 
-  // 处理播放/暂停
+  // 播放/暂停
   const handlePlayPause = useCallback(() => {
     if (practiceState.isPlaying) {
       stopAccompaniment();
       pause();
     } else {
-      if (practiceMode === 'follow') {
-        playAccompaniment();
-      }
+      if (practiceMode === "follow") playAccompaniment();
       start();
     }
   }, [practiceState.isPlaying, practiceMode, playAccompaniment, start, pause, stopAccompaniment]);
 
-  // 处理速度变化
-  const handleTempoChange = useCallback((newTempo: number) => {
-    setTempo(newTempo);
-  }, []);
-
-  // 处理音量变化
-  const handleVolumeChange = useCallback((newVolume: number) => {
-    setVolume(newVolume);
-    if (audioEngineRef.current) {
-      audioEngineRef.current.setVolume(newVolume / 100);
-    }
-  }, []);
-
-  // 处理模式切换
-  const handleModeChange = useCallback((value: string) => {
-    if (value) {
-      setPracticeMode(value as PracticeMode);
-      if (practiceState.isPlaying) {
-        reset();
-      }
-    }
-  }, [practiceState.isPlaying, reset]);
-
-  // 重置
+  // 重新开始
   const handleRestart = useCallback(() => {
     stopAccompaniment();
     stop();
     reset();
     setTimeout(() => {
-      if (practiceMode === 'follow') {
-        playAccompaniment();
-      }
+      if (practiceMode === "follow") playAccompaniment();
       start();
     }, 100);
   }, [stopAccompaniment, stop, reset, practiceMode, playAccompaniment, start]);
 
-  // 统一的音符处理函数（MIDI 和虚拟键盘共用）
-  const handleNotePlay = useCallback((noteNumber: number) => {
-    const noteName = midiToNoteName(noteNumber);
+  // 模式切换
+  const handleModeChange = useCallback((mode: PracticeMode) => {
+    setPracticeMode(mode);
+    if (practiceState.isPlaying) reset();
+  }, [practiceState.isPlaying, reset]);
 
-    // 播放声音
+  // 显示模式切换
+  const handleDisplayModeChange = useCallback((mode: DisplayMode) => {
+    setDisplayMode(mode);
+  }, []);
+
+  // 音符处理
+  const handleNotePlay = useCallback((noteNumber: number) => {
     if (audioEngineRef.current) {
       audioEngineRef.current.playNote(noteNumber, 0.5, volume / 100);
     }
-
-    // 提交到练习控制器进行判定
-    const grade = handleKeyPress(noteNumber);
-
-    return { noteName, grade };
+    handleKeyPress(noteNumber);
   }, [volume, handleKeyPress]);
 
-  // MIDI hook
+  // MIDI
   const { connections, isSupported, connect, disconnect } = useMIDI({
-    onNoteOn: (event: MIDINoteEvent) => {
-      handleNotePlay(event.noteNumber);
-    },
-    onNoteOff: (_event: MIDINoteEvent) => {
-      // Handle note off if needed
-    },
+    onNoteOn: (event: MIDINoteEvent) => { handleNotePlay(event.noteNumber); },
+    onNoteOff: () => {},
   });
 
-  // 虚拟键盘音符处理
-  const handleNoteOn = useCallback((noteNumber: number) => {
-    handleNotePlay(noteNumber);
-  }, [handleNotePlay]);
+  // 键盘快捷键
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if (e.code === "Space") { e.preventDefault(); handlePlayPause(); }
+      if (e.code === "KeyR") { e.preventDefault(); handleRestart(); }
+      if (e.code === "ArrowLeft") setTempo((t) => Math.max(30, t - 5));
+      if (e.code === "ArrowRight") setTempo((t) => Math.min(200, t + 5));
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handlePlayPause, handleRestart]);
 
-  // 获取当前应弹奏的音符（用于虚拟键盘高亮）
   const currentNote = practiceState.currentCursorStep < parsedNotes.length
     ? parsedNotes[practiceState.currentCursorStep]
     : null;
 
+  const anchorMode = displayMode === "anchor";
+  const spectrumMode = displayMode === "spectrum";
+
   return (
-    <div className="flex flex-col h-screen bg-background">
-      {/* 顶部导航 */}
-      <header className="bg-card border-b px-6 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-red-500 via-blue-500 to-green-500 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">清</span>
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold">清谱</h1>
-              <p className="text-xs text-muted-foreground">三色锚线谱交互式练琴</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {/* 练习模式切换 */}
-            <ToggleGroup
-              type="single"
-              value={practiceMode}
-              onValueChange={handleModeChange}
-              className="border rounded-lg p-1"
-            >
-              <ToggleGroupItem value="follow" className="text-xs px-3">
-                跟弹模式
-              </ToggleGroupItem>
-              <ToggleGroupItem value="sight" className="text-xs px-3">
-                视奏模式
-              </ToggleGroupItem>
-            </ToggleGroup>
-
-            {/* 虚拟键盘 Toggle */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowKeyboard(!showKeyboard)}
-              className="gap-2"
-            >
-              <Music className="h-4 w-4" />
-              {showKeyboard ? '收起键盘' : '显示键盘'}
-            </Button>
-
-            {/* MIDI Status */}
-            <MIDIStatus
-              connections={connections}
-              isSupported={isSupported}
-              onConnect={connect}
-              onDisconnect={disconnect}
-            />
-
-            {/* Score Selector */}
-            <select
-              value={selectedScore.id}
-              onChange={(e) => {
-                const score = SAMPLE_SCORES.find((s) => s.id === e.target.value);
-                if (score) {
-                  setSelectedScore(score);
-                  reset();
-                }
-              }}
-              className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              {SAMPLE_SCORES.map((score) => (
-                <option key={score.id} value={score.id}>
-                  {score.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </header>
-
-      {/* 主体内容 */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* 左侧：乐谱 + 虚拟键盘（可调整比例） */}
-        <div className="flex-1 overflow-hidden">
-          {showKeyboard ? (
-            <ResizableSplit
-              topChildren={
-                <ScoreViewer
-                  musicXml={selectedScore.content}
-                  anchorMode={anchorMode}
-                  isPlaying={practiceState.isPlaying}
-                  currentCursorStep={practiceState.currentCursorStep}
-                  totalCursorSteps={practiceState.totalCursorSteps}
-                  lastGrade={practiceState.lastGrade}
-                  onOsmdReady={handleOsmdReady}
-                />
-              }
-              bottomChildren={
-                <div className="h-full flex flex-col">
-                  <div className="flex items-center justify-between p-2 border-b">
-                    <button
-                      onClick={() => setShowKeyboard(false)}
-                      className="flex items-center gap-2 text-sm font-medium hover:bg-secondary rounded-lg px-2 py-1 transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-                      </svg>
-                      <span>虚拟键盘</span>
-                    </button>
-                    <span className="text-xs text-muted-foreground">A-K 白键 · W-P 黑键</span>
-                  </div>
-                  <div className="flex-1 p-4 overflow-hidden">
-                    <VirtualKeyboard
-                      onNotePlay={handleNoteOn}
-                      activeNotes={new Set(currentNote ? [currentNote.midi] : [])}
-                    />
-                  </div>
-                </div>
-              }
-              defaultSplit={0.7}
-              minTopHeight={200}
-              minBottomHeight={150}
-            />
-          ) : (
-            <div className="h-full overflow-auto">
-              <ScoreViewer
-                musicXml={selectedScore.content}
-                anchorMode={anchorMode}
-                isPlaying={practiceState.isPlaying}
-                currentCursorStep={practiceState.currentCursorStep}
-                totalCursorSteps={practiceState.totalCursorSteps}
-                lastGrade={practiceState.lastGrade}
-                onOsmdReady={handleOsmdReady}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* 右侧面板 - 可收起 */}
-        <aside className={`${showStats ? 'w-72' : 'w-10'} border-l bg-card transition-all duration-300 flex flex-col`}>
-          {/* Toggle 按钮 */}
-          <button
-            onClick={() => setShowStats(!showStats)}
-            className="p-2 hover:bg-secondary rounded-lg transition-colors"
-            title={showStats ? '收起统计面板' : '展开统计面板'}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showStats ? "M13 5l7 7-7 7M5 5l7 7-7 7" : "M11 19l-7-7 7-7m8 14l-7-7 7-7"} />
-            </svg>
-          </button>
-
-          {showStats && (
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {/* 练习统计 */}
-              <div>
-                <h3 className="text-sm font-medium mb-2">练习统计</h3>
-                <PracticeStatsPanel
-                  stats={practiceState.stats}
-                  lastGrade={practiceState.lastGrade}
-                  lastDelta={practiceState.lastDelta}
-                  isPlaying={practiceState.isPlaying}
-                  mode={practiceMode}
-                />
-              </div>
-
-              {/* 显示设置 */}
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium">显示设置</h3>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={anchorMode}
-                    onChange={(e) => setAnchorMode(e.target.checked)}
-                    className="rounded"
-                  />
-                  <span>三色锚线模式</span>
-                </label>
-              </div>
-
-              {/* 快捷键提示 */}
-              <div className="space-y-2">
-                <h3 className="text-sm font-medium">快捷键</h3>
-                <div className="text-xs text-muted-foreground space-y-1">
-                  <p><kbd className="px-1.5 py-0.5 bg-secondary rounded">Space</kbd> 播放/暂停</p>
-                  <p><kbd className="px-1.5 py-0.5 bg-secondary rounded">R</kbd> 重新开始</p>
-                  <p><kbd className="px-1.5 py-0.5 bg-secondary rounded">←→</kbd> 调整速度</p>
-                </div>
-              </div>
-            </div>
-          )}
-        </aside>
-      </div>
-
-      {/* 底部控制栏 */}
-      <PracticeControls
-        isPlaying={practiceState.isPlaying}
+    <div className="flex flex-col h-screen bg-background overflow-hidden">
+      {/* 顶部控制栏（可折叠） */}
+      <TopBar
+        collapsed={topCollapsed}
+        onToggle={() => setTopCollapsed(!topCollapsed)}
+        selectedScore={selectedScore}
+        scores={SAMPLE_SCORES}
+        onScoreChange={(s) => { setSelectedScore(s); reset(); }}
+        displayMode={displayMode}
+        onDisplayModeChange={handleDisplayModeChange}
+        practiceMode={practiceMode}
+        onPracticeModeChange={handleModeChange}
         tempo={tempo}
-        volume={volume}
-        currentMeasure={1}
-        totalMeasures={totalMeasures}
-        onPlay={handlePlayPause}
-        onPause={handlePlayPause}
-        onRestart={handleRestart}
-        onTempoChange={handleTempoChange}
-        onVolumeChange={handleVolumeChange}
-        onMeasureChange={() => {}}
+        onTempoChange={setTempo}
+        zoom={zoom}
+        onZoomChange={setZoom}
+        isPlaying={practiceState.isPlaying}
       />
 
-      {/* 底部信息 */}
-      <footer className="bg-card border-t px-6 py-2 text-center">
-        <p className="text-xs text-muted-foreground">
-          三色锚线识谱法 by 郑锡勇 | 清谱 - 练琴即识谱
-        </p>
-      </footer>
+      {/* 乐谱展示区 */}
+      <div className="flex-1 overflow-hidden score-wrapper">
+        <ScoreViewer
+          musicXml={selectedScore.content}
+          anchorMode={anchorMode}
+          spectrumMode={spectrumMode}
+          isPlaying={practiceState.isPlaying}
+          currentCursorStep={practiceState.currentCursorStep}
+          totalCursorSteps={practiceState.totalCursorSteps}
+          lastGrade={practiceState.lastGrade}
+          onOsmdReady={handleOsmdReady}
+          zoom={zoom}
+        />
+      </div>
+
+      {/* 统计条 */}
+      <StatsBar
+        combo={practiceState.stats.combo}
+        perfect={practiceState.stats.perfectCount}
+        good={practiceState.stats.goodCount}
+        miss={practiceState.stats.missCount}
+        accuracy={practiceState.stats.accuracy}
+        isPlaying={practiceState.isPlaying}
+      />
+
+      {/* 虚拟键盘（可折叠） */}
+      <KeyboardPanel
+        collapsed={keyboardCollapsed}
+        onToggle={() => setKeyboardCollapsed(!keyboardCollapsed)}
+        onNotePlay={handleNotePlay}
+        activeNotes={new Set(currentNote ? [currentNote.midi] : [])}
+      />
+
+      {/* 底部浮动控制：播放/暂停 + MIDI */}
+      <div className="fixed bottom-20 right-4 flex flex-col gap-2 z-50">
+        {/* MIDI 按钮 */}
+        {isSupported && (
+          <button
+            onClick={connections.length > 0 ? disconnect : connect}
+            className={`w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-colors ${
+              connections.length > 0
+                ? "bg-green-500 text-white"
+                : "bg-card border text-muted-foreground hover:text-foreground"
+            }`}
+            title={connections.length > 0 ? "断开 MIDI" : "连接 MIDI"}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+            </svg>
+          </button>
+        )}
+
+        {/* 播放/暂停 */}
+        <button
+          onClick={handlePlayPause}
+          className="w-12 h-12 bg-primary text-primary-foreground rounded-full shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors"
+          title={practiceState.isPlaying ? "暂停" : "播放"}
+        >
+          {practiceState.isPlaying ? (
+            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+            </svg>
+          ) : (
+            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          )}
+        </button>
+      </div>
     </div>
   );
 }
