@@ -108,15 +108,55 @@ export default function ScoreViewer({
     };
   }, [musicXml, config.anchorMode]);
 
-  // 缩放处理
+  // 监听容器尺寸变化，自动重新渲染
+  useEffect(() => {
+    if (!containerRef.current || !osmdRef.current) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        // 只有当尺寸大于 0 时才重新渲染
+        if (width > 0 && height > 0 && osmdRef.current) {
+          console.log('[ScoreViewer] Container resized:', width, height);
+          // 重新渲染以适应新尺寸
+          loadAndRender(osmdRef.current, musicXml).then(() => {
+            if (containerRef.current && config.anchorMode) {
+              requestAnimationFrame(() => {
+                if (containerRef.current) {
+                  applyAnchorColors(containerRef.current, config);
+                }
+              });
+            }
+          });
+        }
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [musicXml, config.anchorMode]);
+
+  // 缩放处理 - 需要重新渲染
   const handleZoomChange = useCallback(
     (newZoom: number) => {
       setConfig((prev) => ({ ...prev, zoom: newZoom }));
-      if (osmdRef.current) {
-        setZoom(osmdRef.current, newZoom);
+      // 缩放变化时触发重新渲染
+      if (osmdRef.current && containerRef.current && musicXml) {
+        loadAndRender(osmdRef.current, musicXml).then(() => {
+          if (containerRef.current && config.anchorMode) {
+            requestAnimationFrame(() => {
+              if (containerRef.current) {
+                applyAnchorColors(containerRef.current, { ...config, zoom: newZoom });
+              }
+            });
+          }
+        });
       }
     },
-    [],
+    [musicXml, config],
   );
 
   // 锚线模式切换

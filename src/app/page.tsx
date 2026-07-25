@@ -115,7 +115,7 @@ export default function Home() {
       {/* 主体内容 */}
       <div className="flex-1 flex overflow-hidden">
         {/* 乐谱显示区 */}
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-auto" style={{ minHeight: '600px' }}>
           <ScoreViewer
             musicXml={selectedScore.content}
             anchorMode={anchorMode}
