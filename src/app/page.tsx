@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { Music } from "lucide-react";
 import ScoreViewer from "@/components/ScoreViewer";
 import { PracticeControls } from "@/components/PracticeControls";
 import { MIDIStatus } from "@/components/MIDIStatus";
@@ -12,6 +13,7 @@ import type { MIDINoteEvent } from "@/hooks/useMIDI";
 import { beyerNo1Xml } from "@/lib/scores/beyer-no1";
 import { PianoAudioEngine } from "@/lib/audio-engine";
 import { parseMusicXMLNotes } from "@/lib/musicxml-parser";
+import { Button } from "@/components/ui/button";
 
 const SAMPLE_SCORES = [
   { id: "beyer-1", name: "拜厄 No.1", content: beyerNo1Xml },
@@ -186,6 +188,17 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* 虚拟键盘 Toggle */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowKeyboard(!showKeyboard)}
+              className="gap-2"
+            >
+              <Music className="h-4 w-4" />
+              {showKeyboard ? '收起键盘' : '显示键盘'}
+            </Button>
+
             {/* MIDI Status */}
             <MIDIStatus
               connections={connections}
@@ -231,28 +244,28 @@ export default function Home() {
           </main>
 
           {/* 虚拟键盘区 - 可收起 */}
-          <div className="border-t bg-card">
-            <div className="flex items-center justify-between p-2">
-              <button
-                onClick={() => setShowKeyboard(!showKeyboard)}
-                className="flex items-center gap-2 text-sm font-medium hover:bg-secondary rounded-lg px-2 py-1 transition-colors"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-                </svg>
-                <span>虚拟键盘</span>
-              </button>
-              <span className="text-xs text-muted-foreground">A-K 白键 · W-P 黑键</span>
-            </div>
-            {showKeyboard && (
-              <div className="p-4 pt-0">
+          {showKeyboard && (
+            <div className="border-t bg-card" style={{ height: '200px' }}>
+              <div className="flex items-center justify-between p-2 border-b">
+                <button
+                  onClick={() => setShowKeyboard(false)}
+                  className="flex items-center gap-2 text-sm font-medium hover:bg-secondary rounded-lg px-2 py-1 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                  </svg>
+                  <span>虚拟键盘</span>
+                </button>
+                <span className="text-xs text-muted-foreground">A-K 白键 · W-P 黑键</span>
+              </div>
+              <div className="p-4 overflow-hidden" style={{ height: 'calc(100% - 40px)' }}>
                 <VirtualKeyboard
                   onNotePlay={handleNoteOn}
                   activeNotes={activeNotes}
                 />
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* 右侧面板 - 可收起 */}
