@@ -23,6 +23,10 @@ export default function Home() {
   const [currentMeasure, setCurrentMeasure] = useState(1);
   const [anchorMode, setAnchorMode] = useState(true);
 
+  // UI toggles
+  const [showKeyboard, setShowKeyboard] = useState(true);
+  const [showStats, setShowStats] = useState(true);
+
   // Practice stats
   const [correctNotes, setCorrectNotes] = useState(0);
   const [wrongNotes, setWrongNotes] = useState(0);
@@ -151,53 +155,84 @@ export default function Home() {
             />
           </main>
 
-          {/* 虚拟键盘区 */}
-          <div className="border-t bg-card p-4">
-            <VirtualKeyboard
-              onNotePlay={handleNoteOn}
-              activeNotes={activeNotes}
-            />
+          {/* 虚拟键盘区 - 可收起 */}
+          <div className="border-t bg-card">
+            <div className="flex items-center justify-between p-2">
+              <button
+                onClick={() => setShowKeyboard(!showKeyboard)}
+                className="flex items-center gap-2 text-sm font-medium hover:bg-secondary rounded-lg px-2 py-1 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                </svg>
+                <span>虚拟键盘</span>
+              </button>
+              <span className="text-xs text-muted-foreground">A-K 白键 · W-P 黑键</span>
+            </div>
+            {showKeyboard && (
+              <div className="p-4 pt-0">
+                <VirtualKeyboard
+                  onNotePlay={handleNoteOn}
+                  activeNotes={activeNotes}
+                />
+              </div>
+            )}
           </div>
         </div>
 
-        {/* 右侧面板 */}
-        <aside className="w-72 border-l bg-card p-4 space-y-4 overflow-y-auto">
-          {/* 练习统计 */}
-          <div>
-            <h3 className="text-sm font-medium mb-2">练习统计</h3>
-            <PracticeStats
-              correctNotes={correctNotes}
-              wrongNotes={wrongNotes}
-              totalNotes={totalNotes}
-              accuracy={accuracy}
-              lastPlayedNote={lastPlayedNote}
-              isCorrect={isCorrect}
-            />
-          </div>
+        {/* 右侧面板 - 可收起 */}
+        <aside className={`${showStats ? 'w-72' : 'w-10'} border-l bg-card transition-all duration-300 flex flex-col`}>
+          {/* Toggle 按钮 */}
+          <button
+            onClick={() => setShowStats(!showStats)}
+            className="p-2 hover:bg-secondary rounded-lg transition-colors"
+            title={showStats ? '收起统计面板' : '展开统计面板'}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showStats ? "M13 5l7 7-7 7M5 5l7 7-7 7" : "M11 19l-7-7 7-7m8 14l-7-7 7-7"} />
+            </svg>
+          </button>
 
-          {/* 显示设置 */}
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium">显示设置</h3>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={anchorMode}
-                onChange={(e) => setAnchorMode(e.target.checked)}
-                className="rounded"
-              />
-              <span>三色锚线模式</span>
-            </label>
-          </div>
+          {showStats && (
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* 练习统计 */}
+              <div>
+                <h3 className="text-sm font-medium mb-2">练习统计</h3>
+                <PracticeStats
+                  correctNotes={correctNotes}
+                  wrongNotes={wrongNotes}
+                  totalNotes={totalNotes}
+                  accuracy={accuracy}
+                  lastPlayedNote={lastPlayedNote}
+                  isCorrect={isCorrect}
+                />
+              </div>
 
-          {/* 快捷键提示 */}
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium">快捷键</h3>
-            <div className="text-xs text-muted-foreground space-y-1">
-              <p><kbd className="px-1.5 py-0.5 bg-secondary rounded">Space</kbd> 播放/暂停</p>
-              <p><kbd className="px-1.5 py-0.5 bg-secondary rounded">R</kbd> 重新开始</p>
-              <p><kbd className="px-1.5 py-0.5 bg-secondary rounded">←→</kbd> 调整速度</p>
+              {/* 显示设置 */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium">显示设置</h3>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={anchorMode}
+                    onChange={(e) => setAnchorMode(e.target.checked)}
+                    className="rounded"
+                  />
+                  <span>三色锚线模式</span>
+                </label>
+              </div>
+
+              {/* 快捷键提示 */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium">快捷键</h3>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p><kbd className="px-1.5 py-0.5 bg-secondary rounded">Space</kbd> 播放/暂停</p>
+                  <p><kbd className="px-1.5 py-0.5 bg-secondary rounded">R</kbd> 重新开始</p>
+                  <p><kbd className="px-1.5 py-0.5 bg-secondary rounded">←→</kbd> 调整速度</p>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </aside>
       </div>
 
