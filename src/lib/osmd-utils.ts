@@ -217,16 +217,6 @@ export function applyAnchorColors(
     svg.appendChild(redLine);
     console.log('[Anchor] Added red line at Y:', thirdLineY);
     
-    // 调试：添加一个红色圆点在五线谱中间
-    const debugCircle = document.createElementNS(svgNS, 'circle');
-    debugCircle.setAttribute('cx', String(svgWidth / 2));
-    debugCircle.setAttribute('cy', String(thirdLineY));
-    debugCircle.setAttribute('r', '15');
-    debugCircle.setAttribute('fill', '#FF0000');
-    debugCircle.setAttribute('opacity', '0.8');
-    svg.appendChild(debugCircle);
-    console.log('[Anchor] Added debug red circle at:', svgWidth / 2, thirdLineY);
-    
     // 创建蓝色线（上加一线）- 虚线
     const blueLine = document.createElementNS(svgNS, 'line');
     blueLine.setAttribute('x1', '0');
