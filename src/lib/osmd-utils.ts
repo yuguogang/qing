@@ -144,8 +144,9 @@ export function applyAnchorColors(
 
   // 找到五线谱的 5 条主线（连续的 5 条线）
   // 五线谱的 5 条线应该是等间距的
-  const staffLines: Array<{ el: SVGGraphicsElement; bbox: DOMRect }> = [];
+  let staffLines: Array<{ el: SVGGraphicsElement; bbox: DOMRect }> = [];
   
+  // 方法1：尝试找到等间距的 5 条线
   for (let i = 0; i < horizontalLines.length - 4; i++) {
     const lines = horizontalLines.slice(i, i + 5);
     const spacings = [
@@ -155,17 +156,23 @@ export function applyAnchorColors(
       lines[4].bbox.y - lines[3].bbox.y,
     ];
     
-    // 检查间距是否大致相等（允许 50% 误差，更宽松）
+    // 检查间距是否大致相等（允许 70% 误差，更宽松）
     const avgSpacing = spacings.reduce((a, b) => a + b, 0) / 4;
-    const isUniform = spacings.every(s => Math.abs(s - avgSpacing) < avgSpacing * 0.5);
+    const isUniform = spacings.every(s => Math.abs(s - avgSpacing) < avgSpacing * 0.7);
     
     console.log('[Anchor] Checking lines at Y:', lines.map(l => l.bbox.y), 'spacings:', spacings, 'avg:', avgSpacing, 'uniform:', isUniform);
     
-    if (isUniform && avgSpacing > 3 && avgSpacing < 100) {
+    if (isUniform && avgSpacing > 2 && avgSpacing < 200) {
       staffLines.push(...lines);
       console.log('[Anchor] Found staff lines!');
       break; // 找到第一组五线谱就停止
     }
+  }
+  
+  // 方法2：如果没找到，直接取前 5 条线（假设它们就是五线谱）
+  if (staffLines.length === 0 && horizontalLines.length >= 5) {
+    staffLines = horizontalLines.slice(0, 5);
+    console.log('[Anchor] Using first 5 lines as staff');
   }
 
   console.log('[Anchor] Staff lines found:', staffLines.length);
