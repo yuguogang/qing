@@ -1,16 +1,11 @@
 /**
  * 钢琴音频引擎 - Web Audio API 实现
- * 功能：生成钢琴音色、播放音符、伴奏播放
+ * 使用谐波叠加模拟钢琴音色
  */
 
 // MIDI 音符编号转频率 (Hz)
 export function midiToFrequency(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
-}
-
-// 音符时长 (秒) = 60 / BPM * 拍数
-export function noteDuration(beatType: number, bpm: number): number {
-  return (60 / bpm) * beatType;
 }
 
 export interface PianoNote {
@@ -24,15 +19,14 @@ export class PianoAudioEngine {
   private audioContext: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private isPlaying = false;
-  private scheduledNotes: { source: OscillatorNode; gain: GainNode }[] = [];
   private playStartTime = 0;
-  private playTimeout: number | null = null;
+  private playTimeouts: number[] = [];
 
   constructor() {
     if (typeof window !== 'undefined') {
       this.audioContext = new AudioContext();
       this.masterGain = this.audioContext.createGain();
-      this.masterGain.gain.value = 0.8;
+      this.masterGain.gain.value = 0.5;
       this.masterGain.connect(this.audioContext.destination);
     }
   }
@@ -44,41 +38,52 @@ export class PianoAudioEngine {
     }
   }
 
-  // 播放单个音符
+  // 播放单个音符（钢琴音色）
   playNote(midi: number, duration: number, velocity: number = 0.8): void {
     if (!this.audioContext || !this.masterGain) return;
 
     const ctx = this.audioContext;
     const now = ctx.currentTime;
+    const frequency = midiToFrequency(midi);
 
-    // 创建振荡器（钢琴音色近似）
-    const oscillator = ctx.createOscillator();
-    oscillator.type = 'triangle'; // 三角波接近钢琴音色
-    oscillator.frequency.value = midiToFrequency(midi);
+    // 钢琴音色 = 基波 + 谐波（2 次、3 次、4 次）
+    const harmonics = [
+      { ratio: 1, gain: 1.0 },      // 基波
+      { ratio: 2, gain: 0.5 },      // 2 次谐波
+      { ratio: 3, gain: 0.25 },     // 3 次谐波
+      { ratio: 4, gain: 0.125 },    // 4 次谐波
+    ];
 
-    // 创建增益节点（ADSR 包络）
-    const gainNode = ctx.createGain();
-    const attack = 0.01;
+    const noteGain = ctx.createGain();
+    noteGain.connect(this.masterGain);
+
+    // ADSR 包络
+    const attack = 0.005;
     const decay = 0.1;
-    const sustain = 0.3;
-    const release = 0.3;
+    const sustain = 0.4;
+    const release = Math.min(0.3, duration * 0.3);
 
-    gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime(velocity, now + attack);
-    gainNode.gain.linearRampToValueAtTime(sustain * velocity, now + attack + decay);
-    gainNode.gain.setValueAtTime(sustain * velocity, now + duration - release);
-    gainNode.gain.linearRampToValueAtTime(0, now + duration);
+    noteGain.gain.setValueAtTime(0, now);
+    noteGain.gain.linearRampToValueAtTime(velocity, now + attack);
+    noteGain.gain.linearRampToValueAtTime(sustain * velocity, now + attack + decay);
+    noteGain.gain.setValueAtTime(sustain * velocity, now + duration - release);
+    noteGain.gain.linearRampToValueAtTime(0, now + duration);
 
-    oscillator.connect(gainNode);
-    gainNode.connect(this.masterGain);
+    // 添加谐波
+    harmonics.forEach(({ ratio, gain }) => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = frequency * ratio;
 
-    oscillator.start(now);
-    oscillator.stop(now + duration);
+      const harmonicGain = ctx.createGain();
+      harmonicGain.gain.value = gain * 0.3; // 降低谐波音量
 
-    this.scheduledNotes.push({ source: oscillator, gain: gainNode });
+      osc.connect(harmonicGain);
+      harmonicGain.connect(noteGain);
 
-    // 清理已完成的音符
-    this.cleanupFinishedNotes();
+      osc.start(now);
+      osc.stop(now + duration);
+    });
   }
 
   // 播放音符序列（伴奏）
@@ -90,7 +95,7 @@ export class PianoAudioEngine {
     this.playStartTime = this.audioContext.currentTime;
 
     // 计算时间缩放（基于 BPM）
-    const originalBpm = 80; // 默认 BPM
+    const originalBpm = 80;
     const timeScale = originalBpm / bpm;
 
     notes.forEach((note) => {
@@ -103,53 +108,25 @@ export class PianoAudioEngine {
         }
       }, scaledStart * 1000);
 
-      this.playTimeout = timeout;
+      this.playTimeouts.push(timeout);
     });
 
-    // 播放完成后停止
+    // 播放完成后自动停止
     const lastNote = notes[notes.length - 1];
     if (lastNote) {
-      const totalDuration = (lastNote.startTime + lastNote.duration) * timeScale;
-      window.setTimeout(() => {
-        this.isPlaying = false;
-      }, totalDuration * 1000);
+      const totalDuration = (lastNote.startTime + lastNote.duration) * timeScale * 1000;
+      const endTimeout = window.setTimeout(() => {
+        this.stop();
+      }, totalDuration);
+      this.playTimeouts.push(endTimeout);
     }
   }
 
   // 停止播放
   stop(): void {
     this.isPlaying = false;
-
-    // 清除所有定时任务
-    if (this.playTimeout !== null) {
-      window.clearTimeout(this.playTimeout);
-      this.playTimeout = null;
-    }
-
-    // 停止所有振荡器
-    this.scheduledNotes.forEach(({ source }) => {
-      try {
-        source.stop();
-      } catch (e) {
-        // 忽略已停止的振荡器
-      }
-    });
-    this.scheduledNotes = [];
-  }
-
-  // 暂停播放
-  pause(): void {
-    this.isPlaying = false;
-    if (this.playTimeout !== null) {
-      window.clearTimeout(this.playTimeout);
-      this.playTimeout = null;
-    }
-  }
-
-  // 恢复播放
-  resume(): void {
-    // TODO: 实现从暂停位置恢复
-    this.isPlaying = true;
+    this.playTimeouts.forEach((timeout) => clearTimeout(timeout));
+    this.playTimeouts = [];
   }
 
   // 是否正在播放
@@ -157,33 +134,12 @@ export class PianoAudioEngine {
     return this.isPlaying;
   }
 
-  // 清理已完成的音符
-  private cleanupFinishedNotes(): void {
-    if (!this.audioContext) return;
-
-    const now = this.audioContext.currentTime;
-    this.scheduledNotes = this.scheduledNotes.filter(({ source }) => {
-      // 检查振荡器是否还在运行
-      return true; // 简化处理，实际应该检查状态
-    });
-  }
-
   // 销毁引擎
-  destroy(): void {
+  dispose(): void {
     this.stop();
     if (this.audioContext) {
       this.audioContext.close();
       this.audioContext = null;
     }
   }
-}
-
-// 单例实例
-let audioEngineInstance: PianoAudioEngine | null = null;
-
-export function getAudioEngine(): PianoAudioEngine {
-  if (!audioEngineInstance) {
-    audioEngineInstance = new PianoAudioEngine();
-  }
-  return audioEngineInstance;
 }
