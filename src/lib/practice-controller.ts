@@ -155,6 +155,12 @@ export class PracticeController {
     if (this.osmd?.cursor) {
       this.osmd.cursor.reset();
       this.osmd.cursor.show();
+      // Tailwind CSS 的 img { height: auto } 会覆盖光标 img 的高度，需要重置
+      requestAnimationFrame(() => {
+        document.querySelectorAll('#cursorImg-0').forEach(el => {
+          (el as HTMLElement).style.height = '';
+        });
+      });
     }
 
     this.isPlaying = true;
@@ -287,10 +293,23 @@ export class PracticeController {
       }
     }
 
-    // 如果光标步骤变化了
+    // 如果光标步骤变化了，驱动 OSMD cursor 步进
     if (targetStep > this.lastCursorStep) {
+      const stepsToAdvance = targetStep - this.lastCursorStep;
       this.lastCursorStep = targetStep;
       this.currentCursorStep = targetStep;
+
+      // 调用 OSMD cursor.next() 实际移动光标
+      if (this.osmd?.cursor) {
+        try {
+          for (let i = 0; i < stepsToAdvance; i++) {
+            this.osmd.cursor.next();
+          }
+        } catch {
+          // cursor.next() 可能在某些状态下抛异常，忽略
+        }
+      }
+
       this.callbacks.onCursorStep?.(targetStep);
     }
   }
