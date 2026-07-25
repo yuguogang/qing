@@ -43,7 +43,6 @@ const SCORE_REGISTRY: { id: string; name: string; file: string }[] = [
 const SAMPLE_SCORES = SCORE_REGISTRY.map((s) => ({
   id: s.id,
   name: s.name,
-  content: s.file === "" ? beyerNo1Xml : "",
   file: s.file,
 }));
 
@@ -302,6 +301,7 @@ function KeyboardPanel({
 // ===== 主页面 =====
 export default function Home() {
   const [selectedScore, setSelectedScore] = useState(SAMPLE_SCORES[0]);
+  const [musicXml, setMusicXml] = useState(beyerNo1Xml);
   const [tempo, setTempo] = useState(80);
   const [volume, setVolume] = useState(80);
   const [displayMode, setDisplayMode] = useState<DisplayMode>("anchor");
@@ -377,7 +377,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const notes = parseMusicXMLNotes(selectedScore.content);
+    const notes = parseMusicXMLNotes(musicXml);
     setParsedNotes(notes);
   }, [selectedScore]);
 
@@ -507,7 +507,19 @@ export default function Home() {
         onToggle={() => setTopCollapsed(!topCollapsed)}
         selectedScore={selectedScore}
         scores={SAMPLE_SCORES}
-        onScoreChange={(s) => { setSelectedScore(s); reset(); }}
+        onScoreChange={async (s) => {
+          setSelectedScore(s);
+          if (s.file) {
+            try {
+              const resp = await fetch(`/scores/${s.file}`);
+              const xml = await resp.text();
+              setMusicXml(xml);
+            } catch { /* ignore */ }
+          } else {
+            setMusicXml(beyerNo1Xml);
+          }
+          reset();
+        }}
         displayMode={displayMode}
         onDisplayModeChange={handleDisplayModeChange}
         practiceMode={practiceMode}
@@ -529,7 +541,7 @@ export default function Home() {
       {/* 乐谱展示区 */}
       <div className="flex-1 overflow-hidden score-wrapper">
         <ScoreViewer
-          musicXml={selectedScore.content}
+          musicXml={musicXml}
           anchorMode={anchorMode}
           spectrumMode={spectrumMode}
           isPlaying={practiceState.isPlaying}
