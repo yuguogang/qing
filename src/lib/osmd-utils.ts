@@ -59,8 +59,8 @@ export function createOsmdInstance(
     cursorsOptions: [{
       follow: true,
       type: 0,
-      color: '#3B82F6',
-      alpha: 0.7,
+      color: '#2563EB',
+      alpha: 0.85,
     }],
   });
 

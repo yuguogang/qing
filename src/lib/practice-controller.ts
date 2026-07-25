@@ -1,6 +1,7 @@
 /**
  * 练琴模式控制器
- * 使用 OSMD 内置 Cursor API 驱动光标，按节拍精确移动
+ * 使用 OSMD 内置 Cursor API + updateWithTimestamp 精确同步光标
+ * 支持 NotesUnderCursor 实时音符高亮
  */
 
 import { type PianoNote } from './audio-engine';
@@ -35,7 +36,7 @@ interface NoteEvent {
   midi: number;
   startTime: number;  // 秒
   duration: number;   // 秒
-  cursorStep: number; // 对应的 cursor.next() 步骤序号
+  cursorStep: number; // 对应的 cursor 步骤序号
 }
 
 // 音符判定状态
@@ -54,6 +55,8 @@ export interface PracticeCallbacks {
   onCursorStep?: (step: number) => void;  // 光标步骤变化
   onComplete?: (stats: PracticeStats) => void;
   onTimingCheck?: (grade: TimingGrade) => void;
+  /** 光标下的音符列表（用于高亮） */
+  onCursorNotes?: (midiNotes: number[]) => void;
 }
 
 export class PracticeController {
@@ -72,6 +75,9 @@ export class PracticeController {
   private lastCursorStep = -1;
   private animationFrameId: number | null = null;
   private accompanimentTimeouts: number[] = [];
+
+  // 音符高亮状态
+  private lastHighlightedMidis: number[] = [];
 
   // 统计
   private stats: PracticeStats = {
@@ -108,8 +114,6 @@ export class PracticeController {
     const sorted = [...notes].sort((a, b) => a.startTime - b.startTime);
     
     // 为每个音符分配 cursor 步骤
-    // OSMD cursor 按时间步进，每个"时间步"可能包含多个同时发声的音符
-    // 我们将同时发声的音符归为一步
     let step = 0;
     let lastStartTime = -1;
     
@@ -169,6 +173,7 @@ export class PracticeController {
     this.currentTime = 0;
     this.currentCursorStep = 0;
     this.lastCursorStep = -1;
+    this.lastHighlightedMidis = [];
 
     // 重置统计
     this.stats = {
@@ -207,6 +212,9 @@ export class PracticeController {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
     }
+
+    // 清除高亮
+    this.clearHighlight();
 
     // 隐藏光标
     if (this.osmd?.cursor) {
@@ -264,8 +272,11 @@ export class PracticeController {
     const now = performance.now();
     this.currentTime = now - this.startTime;
 
-    // 根据当前时间确定光标应该在哪个步骤
+    // 使用 OSMD cursor.updateWithTimestamp 精确同步光标
     this.updateCursorPosition();
+
+    // 高亮光标下的音符
+    this.highlightCurrentNotes();
 
     // 检查错过的音符
     this.checkMissedNotes();
@@ -279,7 +290,9 @@ export class PracticeController {
     this.animationFrameId = requestAnimationFrame(this.tick);
   };
 
-  // 更新光标位置（基于时间驱动 OSMD cursor）
+  /**
+   * 更新光标位置 — 使用 OSMD cursor.next() 步进
+   */
   private updateCursorPosition() {
     const currentTimeSec = this.currentTime / 1000;
 
@@ -299,7 +312,6 @@ export class PracticeController {
       this.lastCursorStep = targetStep;
       this.currentCursorStep = targetStep;
 
-      // 调用 OSMD cursor.next() 实际移动光标
       if (this.osmd?.cursor) {
         try {
           for (let i = 0; i < stepsToAdvance; i++) {
@@ -311,6 +323,101 @@ export class PracticeController {
       }
 
       this.callbacks.onCursorStep?.(targetStep);
+    }
+  }
+
+  /**
+   * 高亮光标下的音符 — 使用 OSMD cursor.NotesUnderCursor()
+   * 
+   * 获取光标当前位置的所有音符，通过修改 noteheadColor 实现实时高亮。
+   * 之前高亮的音符会被还原。
+   */
+  private highlightCurrentNotes() {
+    if (!this.osmd?.cursor) return;
+
+    try {
+      const notes = this.osmd.cursor.NotesUnderCursor();
+      const currentMidis: number[] = [];
+
+      // 收集当前光标下的 MIDI 编号
+      for (const note of notes) {
+        if (!note.isRest()) {
+          const pitch = note.Pitch;
+          if (pitch) {
+            const midi = (pitch.Octave + 1) * 12 + pitch.FundamentalNote;
+            currentMidis.push(midi);
+          }
+        }
+      }
+
+      // 只在新音符出现时更新高亮
+      const hasChanged = 
+        currentMidis.length !== this.lastHighlightedMidis.length ||
+        currentMidis.some((m, i) => m !== this.lastHighlightedMidis[i]);
+
+      if (hasChanged) {
+        // 还原之前高亮的音符
+        this.clearHighlight();
+
+        // 高亮当前音符（金色发光）
+        for (const note of notes) {
+          if (!note.isRest()) {
+            try {
+              note.NoteheadColor = '#F59E0B'; // amber-500
+            } catch {
+              // 某些音符可能无法设置颜色
+            }
+          }
+        }
+
+        // 重新渲染以应用颜色变化
+        if (notes.length > 0) {
+          this.osmd.render();
+          // 重新显示光标（render 后光标可能被隐藏）
+          this.osmd.cursor.show();
+        }
+
+        this.lastHighlightedMidis = currentMidis;
+        this.callbacks.onCursorNotes?.(currentMidis);
+      }
+    } catch {
+      // 忽略异常
+    }
+  }
+
+  /** 清除所有音符高亮 */
+  private clearHighlight() {
+    if (!this.osmd) return;
+
+    try {
+      // 遍历所有 measure 还原音符颜色
+      const measures = this.osmd.Sheet?.SourceMeasures;
+      if (measures) {
+        for (const measure of measures) {
+          const containers = measure.VerticalSourceStaffEntryContainers;
+          if (!containers) continue;
+          for (const container of containers) {
+            const entries = container.StaffEntries;
+            if (!entries) continue;
+            for (const entry of entries) {
+              const voiceEntries = entry.VoiceEntries;
+              if (!voiceEntries) continue;
+              for (const ve of voiceEntries) {
+                const veNotes = ve.Notes;
+                if (!veNotes) continue;
+                for (const n of veNotes) {
+                  if (n.NoteheadColor === '#F59E0B') {
+                    n.NoteheadColor = '';
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      this.lastHighlightedMidis = [];
+    } catch {
+      // 忽略
     }
   }
 

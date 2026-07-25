@@ -321,7 +321,7 @@ export default function ScoreViewer({
 
         <div
           ref={containerRef}
-          className="w-full relative"
+          className={`w-full relative osmd-container ${isPlaying ? 'playing' : ''}`}
           style={{ 
             minHeight: '400px',
             overflow: 'visible',

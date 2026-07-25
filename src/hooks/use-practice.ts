@@ -149,6 +149,10 @@ export function usePractice(
           currentCursorStep: controller.getCurrentCursorStep(),
         }));
       },
+      onCursorNotes: (_midiNotes) => {
+        // 音符高亮由 PracticeController 内部处理
+        // 这里可以用于 UI 更新（如显示当前音符名）
+      },
       onComplete: (stats) => {
         stopPolling();
         setState(prev => ({
