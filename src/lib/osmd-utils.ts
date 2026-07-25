@@ -175,32 +175,8 @@ export function applyAnchorColors(
     horizontalLinesCount: horizontalLines.length,
     staffLinesFound: staffLines.length,
   };
-  
-  for (let i = 0; i < horizontalLines.length - 4; i++) {
-    const lines = horizontalLines.slice(i, i + 5);
-    const spacings = [
-      lines[1].bbox.y - lines[0].bbox.y,
-      lines[2].bbox.y - lines[1].bbox.y,
-      lines[3].bbox.y - lines[2].bbox.y,
-      lines[4].bbox.y - lines[3].bbox.y,
-    ];
-    
-    // 检查间距是否大致相等（允许 30% 误差）
-    const avgSpacing = spacings.reduce((a, b) => a + b, 0) / 4;
-    const isUniform = spacings.every(s => Math.abs(s - avgSpacing) < avgSpacing * 0.3);
-    
-    console.log('[Anchor] Checking lines at Y:', lines.map(l => l.bbox.y), 'spacings:', spacings, 'avg:', avgSpacing, 'uniform:', isUniform);
-    
-    if (isUniform && avgSpacing > 3 && avgSpacing < 100) {
-      staffLines.push(...lines);
-      console.log('[Anchor] Found staff lines!');
-      break; // 找到第一组五线谱就停止
-    }
-  }
 
-  console.log('[Anchor] Staff lines found:', staffLines.length);
-
-  // 如果找到了五线谱线条，应用颜色
+  // 如果找到了五线谱线条，直接插入新的彩色线条
   if (staffLines.length >= 5) {
     const thirdLineY = staffLines[2].bbox.y;
     const spacing = staffLines[1].bbox.y - staffLines[0].bbox.y;
@@ -212,78 +188,56 @@ export function applyAnchorColors(
     console.log('[Anchor] Third line Y:', thirdLineY, 'Spacing:', spacing);
     console.log('[Anchor] Upper ledger Y:', upperLedgerY, 'Lower ledger Y:', lowerLedgerY);
     
-    // 遍历所有水平线，根据 Y 坐标应用颜色
-    let foundUpperLedger = false;
-    let foundLowerLedger = false;
-    
-    horizontalLines.forEach(({ el, bbox }) => {
-      const y = bbox.y;
-      
-      // 第三线（允许一定误差）
-      if (Math.abs(y - thirdLineY) < spacing * 0.3) {
-        applyColor(el, ANCHOR_COLORS.middleLine);
-      }
-      // 上加一线
-      else if (Math.abs(y - upperLedgerY) < spacing * 0.5) {
-        applyColor(el, ANCHOR_COLORS.upperLedger);
-        foundUpperLedger = true;
-      }
-      // 下加一线
-      else if (Math.abs(y - lowerLedgerY) < spacing * 0.5) {
-        applyColor(el, ANCHOR_COLORS.lowerLedger);
-        foundLowerLedger = true;
-      }
-    });
-    
-    console.log('[Anchor] Found upper ledger:', foundUpperLedger, 'lower ledger:', foundLowerLedger);
-    
-    // 如果乐谱中没有上加一线或下加一线，主动绘制
+    // 获取 SVG 的 viewBox 宽度
     const svgNS = 'http://www.w3.org/2000/svg';
     const svgWidth = svg.viewBox.baseVal.width || svg.clientWidth || 1000;
     
-    if (!foundUpperLedger) {
-      const upperLine = document.createElementNS(svgNS, 'line');
-      upperLine.setAttribute('x1', '0');
-      upperLine.setAttribute('y1', String(upperLedgerY));
-      upperLine.setAttribute('x2', String(svgWidth));
-      upperLine.setAttribute('y2', String(upperLedgerY));
-      upperLine.setAttribute('stroke', ANCHOR_COLORS.upperLedger);
-      upperLine.setAttribute('stroke-width', '2');
-      upperLine.setAttribute('stroke-dasharray', '5,5'); // 虚线表示参考线
-      svg.appendChild(upperLine);
-      console.log('[Anchor] Added upper ledger line');
-    }
+    // 创建红色线（第三线）- 实线
+    const redLine = document.createElementNS(svgNS, 'line');
+    redLine.setAttribute('x1', '0');
+    redLine.setAttribute('y1', String(thirdLineY));
+    redLine.setAttribute('x2', String(svgWidth));
+    redLine.setAttribute('y2', String(thirdLineY));
+    redLine.setAttribute('stroke', ANCHOR_COLORS.middleLine);
+    redLine.setAttribute('stroke-width', '4');
+    redLine.setAttribute('stroke-opacity', '0.9');
+    redLine.style.stroke = ANCHOR_COLORS.middleLine;
+    redLine.style.strokeWidth = '4px';
+    redLine.style.strokeOpacity = '0.9';
+    svg.appendChild(redLine);
+    console.log('[Anchor] Added red line at Y:', thirdLineY);
     
-    if (!foundLowerLedger) {
-      const lowerLine = document.createElementNS(svgNS, 'line');
-      lowerLine.setAttribute('x1', '0');
-      lowerLine.setAttribute('y1', String(lowerLedgerY));
-      lowerLine.setAttribute('x2', String(svgWidth));
-      lowerLine.setAttribute('y2', String(lowerLedgerY));
-      lowerLine.setAttribute('stroke', ANCHOR_COLORS.lowerLedger);
-      lowerLine.setAttribute('stroke-width', '2');
-      lowerLine.setAttribute('stroke-dasharray', '5,5'); // 虚线表示参考线
-      svg.appendChild(lowerLine);
-      console.log('[Anchor] Added lower ledger line');
-    }
+    // 创建蓝色线（上加一线）- 虚线
+    const blueLine = document.createElementNS(svgNS, 'line');
+    blueLine.setAttribute('x1', '0');
+    blueLine.setAttribute('y1', String(upperLedgerY));
+    blueLine.setAttribute('x2', String(svgWidth));
+    blueLine.setAttribute('y2', String(upperLedgerY));
+    blueLine.setAttribute('stroke', ANCHOR_COLORS.upperLedger);
+    blueLine.setAttribute('stroke-width', '3');
+    blueLine.setAttribute('stroke-opacity', '0.9');
+    blueLine.setAttribute('stroke-dasharray', '8,4');
+    blueLine.style.stroke = ANCHOR_COLORS.upperLedger;
+    blueLine.style.strokeWidth = '3px';
+    blueLine.style.strokeOpacity = '0.9';
+    svg.appendChild(blueLine);
+    console.log('[Anchor] Added blue line at Y:', upperLedgerY);
     
-    console.log('[Anchor] Colors applied to all matching lines');
-  } else {
-    console.log('[Anchor] No staff lines found, trying simpler approach');
-    // 简化方法：直接对前几条水平线着色
-    if (horizontalLines.length >= 5) {
-      // 假设前 5 条是五线谱
-      const simpleStaff = horizontalLines.slice(0, 5);
-      const simpleThirdY = simpleStaff[2].bbox.y;
-      const simpleSpacing = simpleStaff[1].bbox.y - simpleStaff[0].bbox.y;
-      
-      horizontalLines.forEach(({ el, bbox }) => {
-        if (Math.abs(bbox.y - simpleThirdY) < simpleSpacing * 0.3) {
-          applyColor(el, ANCHOR_COLORS.middleLine);
-        }
-      });
-      console.log('[Anchor] Simple approach applied');
-    }
+    // 创建绿色线（下加一线）- 虚线
+    const greenLine = document.createElementNS(svgNS, 'line');
+    greenLine.setAttribute('x1', '0');
+    greenLine.setAttribute('y1', String(lowerLedgerY));
+    greenLine.setAttribute('x2', String(svgWidth));
+    greenLine.setAttribute('y2', String(lowerLedgerY));
+    greenLine.setAttribute('stroke', ANCHOR_COLORS.lowerLedger);
+    greenLine.setAttribute('stroke-width', '3');
+    greenLine.setAttribute('stroke-opacity', '0.9');
+    greenLine.setAttribute('stroke-dasharray', '8,4');
+    greenLine.style.stroke = ANCHOR_COLORS.lowerLedger;
+    greenLine.style.strokeWidth = '3px';
+    greenLine.style.strokeOpacity = '0.9';
+    svg.appendChild(greenLine);
+    console.log('[Anchor] Added green line at Y:', lowerLedgerY);
   }
 
   return debugResult;
