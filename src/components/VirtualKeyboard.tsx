@@ -153,7 +153,7 @@ export function VirtualKeyboard({ onNotePlay, activeNotes = new Set() }: Virtual
         <span>用鼠标点击或电脑键盘弹奏（A-K 白键，W-P 黑键）</span>
       </div>
 
-      <div className="relative mx-auto h-32 w-full max-w-3xl">
+      <div className="relative mx-auto w-full max-w-4xl" style={{ height: "clamp(120px, 20vh, 200px)" }}>
         {/* 白键 */}
         <div className="absolute inset-0 flex">
           {whiteKeys.map((key) => {
@@ -171,10 +171,10 @@ export function VirtualKeyboard({ onNotePlay, activeNotes = new Set() }: Virtual
                 }`}
                 style={{ height: "100%" }}
               >
-                <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-gray-500">
+                <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] text-gray-500">
                   {key.key?.toUpperCase()}
                 </span>
-                <span className="absolute bottom-6 left-1/2 -translate-x-1/2 text-xs text-gray-400">
+                <span className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[10px] text-gray-400">
                   {key.label}
                 </span>
               </button>
@@ -192,14 +192,14 @@ export function VirtualKeyboard({ onNotePlay, activeNotes = new Set() }: Virtual
             <button
               key={key.note}
               onMouseDown={() => handleMouseDown(key.note)}
-              className={`absolute top-0 w-[8%] h-[60%] rounded-b-md transition-colors z-10 ${
+              className={`absolute top-0 w-[8%] rounded-b-md transition-colors z-10 ${
                 isActive || isPressed
                   ? "bg-blue-600 border-blue-700"
                   : "bg-gray-900 hover:bg-gray-800"
               }`}
-              style={{ left: `${left}%` }}
+              style={{ left: `${left}%`, height: "60%" }}
             >
-              <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-xs text-gray-300">
+              <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] text-gray-300">
                 {key.key?.toUpperCase()}
               </span>
             </button>
