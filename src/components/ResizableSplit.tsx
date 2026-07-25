@@ -68,12 +68,15 @@ export function ResizableSplit({
       {/* 顶部区域 */}
       <div
         style={{ 
-          flex: `0 0 ${split * 100}%`,
+          flex: `1 1 ${split * 100}%`,
           minHeight: `${minTopHeight}px`,
           overflow: 'auto'
         }}
+        className="flex flex-col"
       >
-        {topChildren}
+        <div className="flex-1 overflow-auto">
+          {topChildren}
+        </div>
       </div>
 
       {/* 分割线 */}
@@ -87,12 +90,15 @@ export function ResizableSplit({
       {/* 底部区域 */}
       <div
         style={{ 
-          flex: `0 0 ${(1 - split) * 100}%`,
+          flex: `1 1 ${(1 - split) * 100}%`,
           minHeight: `${minBottomHeight}px`,
           overflow: 'auto'
         }}
+        className="flex flex-col"
       >
-        {bottomChildren}
+        <div className="flex-1 overflow-auto">
+          {bottomChildren}
+        </div>
       </div>
     </div>
   );

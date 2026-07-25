@@ -56,7 +56,7 @@ export default function ScoreViewer({
         console.log('[ScoreViewer] Initializing OSMD...');
 
         // 等待 DOM 完全就绪
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 200));
 
         // 清理旧实例
         if (osmdRef.current) {
@@ -91,6 +91,7 @@ export default function ScoreViewer({
         // 应用三色锚线
         if (config.anchorMode && containerRef.current) {
           // 等待 SVG 渲染完成
+          await new Promise(resolve => setTimeout(resolve, 100));
           requestAnimationFrame(() => {
             if (containerRef.current) {
               applyAnchorColors(containerRef.current, config);
