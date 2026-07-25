@@ -7,6 +7,7 @@ import { PracticeControls } from "@/components/PracticeControls";
 import { MIDIStatus } from "@/components/MIDIStatus";
 import { PracticeStats } from "@/components/PracticeStats";
 import { VirtualKeyboard } from "@/components/VirtualKeyboard";
+import { ResizableSplit } from "@/components/ResizableSplit";
 import { useMIDI } from "@/hooks/useMIDI";
 import { midiToNoteName, calculateAccuracy } from "@/lib/note-matching";
 import type { MIDINoteEvent } from "@/hooks/useMIDI";
@@ -252,39 +253,52 @@ export default function Home() {
 
       {/* 主体内容 */}
       <div className="flex-1 flex overflow-hidden">
-        {/* 左侧：乐谱 + 虚拟键盘 */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* 乐谱显示区 */}
-          <main className="flex-1 overflow-auto" style={{ minHeight: '400px' }}>
-            <ScoreViewer
-              musicXml={selectedScore.content}
-              anchorMode={anchorMode}
-              isPlaying={isPlaying}
-              currentMeasure={currentMeasure}
-            />
-          </main>
-
-          {/* 虚拟键盘区 - 可收起 */}
-          {showKeyboard && (
-            <div className="border-t bg-card" style={{ height: '200px' }}>
-              <div className="flex items-center justify-between p-2 border-b">
-                <button
-                  onClick={() => setShowKeyboard(false)}
-                  className="flex items-center gap-2 text-sm font-medium hover:bg-secondary rounded-lg px-2 py-1 transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-                  </svg>
-                  <span>虚拟键盘</span>
-                </button>
-                <span className="text-xs text-muted-foreground">A-K 白键 · W-P 黑键</span>
-              </div>
-              <div className="p-4 overflow-hidden" style={{ height: 'calc(100% - 40px)' }}>
-                <VirtualKeyboard
-                  onNotePlay={handleNoteOn}
-                  activeNotes={activeNotes}
+        {/* 左侧：乐谱 + 虚拟键盘（可调整比例） */}
+        <div className="flex-1 overflow-hidden">
+          {showKeyboard ? (
+            <ResizableSplit
+              topChildren={
+                <ScoreViewer
+                  musicXml={selectedScore.content}
+                  anchorMode={anchorMode}
+                  isPlaying={isPlaying}
+                  currentMeasure={currentMeasure}
                 />
-              </div>
+              }
+              bottomChildren={
+                <div className="h-full flex flex-col">
+                  <div className="flex items-center justify-between p-2 border-b">
+                    <button
+                      onClick={() => setShowKeyboard(false)}
+                      className="flex items-center gap-2 text-sm font-medium hover:bg-secondary rounded-lg px-2 py-1 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                      </svg>
+                      <span>虚拟键盘</span>
+                    </button>
+                    <span className="text-xs text-muted-foreground">A-K 白键 · W-P 黑键</span>
+                  </div>
+                  <div className="flex-1 p-4 overflow-hidden">
+                    <VirtualKeyboard
+                      onNotePlay={handleNoteOn}
+                      activeNotes={activeNotes}
+                    />
+                  </div>
+                </div>
+              }
+              defaultSplit={0.7}
+              minTopHeight={200}
+              minBottomHeight={150}
+            />
+          ) : (
+            <div className="h-full overflow-auto">
+              <ScoreViewer
+                musicXml={selectedScore.content}
+                anchorMode={anchorMode}
+                isPlaying={isPlaying}
+                currentMeasure={currentMeasure}
+              />
             </div>
           )}
         </div>
