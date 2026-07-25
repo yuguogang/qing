@@ -175,7 +175,13 @@ export function applyAnchorColors(
     console.log('[Anchor] Using first 5 lines as staff');
   }
 
+  // 按 Y 坐标排序，确保从上到下
+  staffLines.sort((a, b) => a.bbox.y - b.bbox.y);
+
   console.log('[Anchor] Staff lines found:', staffLines.length);
+  staffLines.forEach((line, i) => {
+    console.log(`[Anchor] Line ${i + 1}: y=${line.bbox.y.toFixed(1)}, width=${line.bbox.width.toFixed(1)}`);
+  });
 
   const debugResult = {
     totalElements: allElements.length,
