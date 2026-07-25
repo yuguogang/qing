@@ -228,15 +228,23 @@ function extractStaffLinePositions(osmd: OpenSheetMusicDisplay): StaffLineGroup[
           const graphicalLines = staffLineObj.StaffLines;
           if (!graphicalLines || graphicalLines.length < 5) continue;
 
-          // 提取 5 条线的坐标
+          // 通过 SVGElement 获取 SVG 中的实际坐标（非 OSMD 内部坐标）
           const lines: StaffLinePosition[] = graphicalLines
             .slice(0, 5)
-            .map((gl: { Start: { x: number; y: number }; End: { x: number; y: number } }) => ({
-              y: gl.Start.y,
-              x: gl.Start.x,
-              x2: gl.End.x,
-            }))
-            .sort((a: StaffLinePosition, b: StaffLinePosition) => a.y - b.y);
+            .map((gl) => {
+              const el = gl.SVGElement as SVGGraphicsElement;
+              let bbox: DOMRect | null = null;
+              try { bbox = el.getBBox(); } catch { /* ignore */ }
+              if (bbox) {
+                return {
+                  y: bbox.y + bbox.height / 2,
+                  x: bbox.x,
+                  x2: bbox.x + bbox.width,
+                };
+              }
+              return { y: 0, x: 0, x2: 0 };
+            })
+            .sort((a, b) => a.y - b.y);
 
           result.push({
             staffLineIndex: sli,
