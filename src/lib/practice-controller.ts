@@ -287,17 +287,8 @@ export class PracticeController {
       }
     }
 
-    // 如果光标步骤变化了，调用 OSMD cursor.next()
-    if (targetStep > this.lastCursorStep && this.osmd?.cursor) {
-      const stepsToAdvance = targetStep - this.lastCursorStep;
-      for (let i = 0; i < stepsToAdvance; i++) {
-        try {
-          this.osmd.cursor.next();
-        } catch {
-          // cursor 可能已经到达末尾
-          break;
-        }
-      }
+    // 如果光标步骤变化了
+    if (targetStep > this.lastCursorStep) {
       this.lastCursorStep = targetStep;
       this.currentCursorStep = targetStep;
       this.callbacks.onCursorStep?.(targetStep);
@@ -306,13 +297,18 @@ export class PracticeController {
 
   // 检查错过的音符
   private checkMissedNotes() {
+    // 练习开始后 3 秒内不判定错过（给用户准备时间）
+    if (this.currentTime < 3000) return;
+
     const window = 500; // 500ms 后标记为错过
 
     for (const judgment of this.judgments) {
       if (judgment.judged) continue;
 
+      // 跳过 expectedTime 太小的音符（开头音符需要更多反应时间）
+      // 只有当前时间超过音符期望时间至少 1500ms 才判定错过
       const delta = this.currentTime - judgment.expectedTime;
-      if (delta > TIMING_THRESHOLDS.good + window) {
+      if (delta > TIMING_THRESHOLDS.good + window && delta > 1500) {
         judgment.judged = true;
         judgment.grade = 'miss';
         this.stats.missCount++;

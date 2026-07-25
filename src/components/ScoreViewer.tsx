@@ -319,16 +319,32 @@ export default function ScoreViewer({
           </div>
         )}
 
-        <div
-          ref={containerRef}
-          className="w-full relative"
-          style={{ 
-            minHeight: '400px',
-            overflow: 'visible',
-            opacity: loading || error ? 0 : 1,
-            transition: 'opacity 0.3s ease'
-          }}
-        />
+        <div className="relative" style={{ overflow: 'visible' }}>
+          <div
+            ref={containerRef}
+            className="w-full relative"
+            style={{ 
+              minHeight: '400px',
+              overflow: 'visible',
+              opacity: loading || error ? 0 : 1,
+              transition: 'opacity 0.3s ease'
+            }}
+          />
+          {/* 自定义光标覆盖层 */}
+          {isPlaying && totalCursorSteps > 0 && (
+            <div
+              className="absolute top-0 bottom-0 pointer-events-none z-10"
+              style={{
+                left: `${progressPercent}%`,
+                width: '3px',
+                background: 'linear-gradient(to bottom, #3B82F6, #1D4ED8)',
+                boxShadow: '0 0 8px rgba(59, 130, 246, 0.6), 0 0 20px rgba(59, 130, 246, 0.3)',
+                borderRadius: '2px',
+                transition: 'left 0.05s linear',
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
