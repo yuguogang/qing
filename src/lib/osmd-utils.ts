@@ -88,16 +88,30 @@ export function applyAnchorColors(
   if (!config.anchorMode) return;
 
   const svg = container.querySelector('svg');
-  if (!svg) return;
+  if (!svg) {
+    console.log('[Anchor] No SVG found');
+    return;
+  }
 
-  // 获取所有线条元素
-  const allLines = svg.querySelectorAll('line, path');
+  console.log('[Anchor] SVG found, viewBox:', svg.viewBox?.baseVal);
+  console.log('[Anchor] SVG children count:', svg.children.length);
+
+  // 获取所有可能的线条元素（包括 rect, line, path, polygon）
+  const allElements = svg.querySelectorAll('*');
+  console.log('[Anchor] Total elements:', allElements.length);
   
   // 过滤出水平线条（五线谱线条）
-  const horizontalLines: Array<{ el: SVGGraphicsElement; bbox: DOMRect }> = [];
+  const horizontalLines: Array<{ el: SVGGraphicsElement; bbox: DOMRect; tag: string }> = [];
   
-  allLines.forEach((line) => {
-    const el = line as SVGGraphicsElement;
+  allElements.forEach((elem) => {
+    const el = elem as SVGGraphicsElement;
+    const tag = el.tagName.toLowerCase();
+    
+    // 只处理可能的线条元素
+    if (tag !== 'line' && tag !== 'path' && tag !== 'rect' && tag !== 'polygon') {
+      return;
+    }
+    
     let bbox: DOMRect | null = null;
     try {
       bbox = el.getBBox();
@@ -106,11 +120,18 @@ export function applyAnchorColors(
     }
     if (!bbox) return;
 
-    // 检测是否为水平线（五线谱线条）
-    const isHorizontal = bbox.height < 3 && bbox.width > 30;
+    // 检测是否为水平线（五线谱线条）- 放宽条件
+    const isHorizontal = bbox.height < 5 && bbox.width > 50;
     if (isHorizontal) {
-      horizontalLines.push({ el, bbox });
+      horizontalLines.push({ el, bbox, tag });
     }
+  });
+
+  console.log('[Anchor] Horizontal lines found:', horizontalLines.length);
+  
+  // 打印前 10 个水平线的信息
+  horizontalLines.slice(0, 10).forEach((item, i) => {
+    console.log(`[Anchor] Line ${i}: tag=${item.tag}, y=${item.bbox.y}, height=${item.bbox.height}, width=${item.bbox.width}`);
   });
 
   // 按 Y 坐标排序
@@ -129,21 +150,27 @@ export function applyAnchorColors(
       lines[4].bbox.y - lines[3].bbox.y,
     ];
     
-    // 检查间距是否大致相等（允许 20% 误差）
+    // 检查间距是否大致相等（允许 30% 误差）
     const avgSpacing = spacings.reduce((a, b) => a + b, 0) / 4;
     const isUniform = spacings.every(s => Math.abs(s - avgSpacing) < avgSpacing * 0.3);
     
-    if (isUniform && avgSpacing > 5 && avgSpacing < 50) {
+    console.log('[Anchor] Checking lines at Y:', lines.map(l => l.bbox.y), 'spacings:', spacings, 'avg:', avgSpacing, 'uniform:', isUniform);
+    
+    if (isUniform && avgSpacing > 3 && avgSpacing < 100) {
       staffLines.push(...lines);
+      console.log('[Anchor] Found staff lines!');
       break; // 找到第一组五线谱就停止
     }
   }
+
+  console.log('[Anchor] Staff lines found:', staffLines.length);
 
   // 如果找到了五线谱线条，应用颜色
   if (staffLines.length >= 5) {
     // 第三线（中间那条）- 红色
     if (staffLines[2]) {
       applyColor(staffLines[2].el, ANCHOR_COLORS.middleLine);
+      console.log('[Anchor] Applied red to 3rd line at Y:', staffLines[2].bbox.y);
     }
     
     // 查找上加一线（在五线谱上方）
@@ -154,6 +181,7 @@ export function applyAnchorColors(
     horizontalLines.forEach(({ el, bbox }) => {
       if (Math.abs(bbox.y - upperLedgerY) < spacing * 0.5) {
         applyColor(el, ANCHOR_COLORS.upperLedger);
+        console.log('[Anchor] Applied blue to upper ledger at Y:', bbox.y);
       }
     });
     
@@ -164,8 +192,18 @@ export function applyAnchorColors(
     horizontalLines.forEach(({ el, bbox }) => {
       if (Math.abs(bbox.y - lowerLedgerY) < spacing * 0.5) {
         applyColor(el, ANCHOR_COLORS.lowerLedger);
+        console.log('[Anchor] Applied green to lower ledger at Y:', bbox.y);
       }
     });
+  } else {
+    console.log('[Anchor] No staff lines found, trying simpler approach');
+    // 简化方法：直接对前几条水平线着色
+    if (horizontalLines.length >= 5) {
+      // 假设前 5 条是五线谱
+      const simpleStaff = horizontalLines.slice(0, 5);
+      applyColor(simpleStaff[2].el, ANCHOR_COLORS.middleLine);
+      console.log('[Anchor] Simple approach: applied red to line at Y:', simpleStaff[2].bbox.y);
+    }
   }
 }
 

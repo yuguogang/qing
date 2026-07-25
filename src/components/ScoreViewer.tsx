@@ -39,6 +39,7 @@ export default function ScoreViewer({
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
   // 初始化 OSMD 并加载乐谱
   useEffect(() => {
@@ -91,9 +92,43 @@ export default function ScoreViewer({
         // 应用三色锚线
         if (config.anchorMode && containerRef.current) {
           // 等待 SVG 渲染完成
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, 500));
           requestAnimationFrame(() => {
             if (containerRef.current) {
+              // 调试：输出 SVG 结构信息
+              const svg = containerRef.current.querySelector('svg');
+              if (svg) {
+                const allElements = svg.querySelectorAll('*');
+                const lineElements = svg.querySelectorAll('line');
+                const pathElements = svg.querySelectorAll('path');
+                const rectElements = svg.querySelectorAll('rect');
+                
+                const debugText = `SVG: ${allElements.length} elements, ${lineElements.length} lines, ${pathElements.length} paths, ${rectElements.length} rects`;
+                setDebugInfo(debugText);
+                console.log('[ScoreViewer] SVG debug:', debugText);
+                
+                // 保存 SVG 结构到文件供调试
+                if (typeof window !== 'undefined') {
+                  const sampleLines = Array.from(lineElements).slice(0, 10).map(el => ({
+                    tag: el.tagName,
+                    x1: el.getAttribute('x1'),
+                    y1: el.getAttribute('y1'),
+                    x2: el.getAttribute('x2'),
+                    y2: el.getAttribute('y2'),
+                    stroke: el.getAttribute('stroke'),
+                    'stroke-width': el.getAttribute('stroke-width')
+                  }));
+                  const samplePaths = Array.from(pathElements).slice(0, 10).map(el => ({
+                    tag: el.tagName,
+                    d: el.getAttribute('d')?.substring(0, 100),
+                    stroke: el.getAttribute('stroke'),
+                    fill: el.getAttribute('fill')
+                  }));
+                  console.log('[ScoreViewer] Sample lines:', JSON.stringify(sampleLines, null, 2));
+                  console.log('[ScoreViewer] Sample paths:', JSON.stringify(samplePaths, null, 2));
+                }
+              }
+              
               applyAnchorColors(containerRef.current, config);
               console.log('[ScoreViewer] Anchor colors applied');
             }
@@ -225,6 +260,13 @@ export default function ScoreViewer({
             {Math.round(config.zoom * 100)}%
           </span>
         </div>
+
+        {/* 调试信息 */}
+        {debugInfo && (
+          <div className="ml-auto text-xs text-gray-400 font-mono">
+            {debugInfo}
+          </div>
+        )}
       </div>
 
       {/* 乐谱显示区域 */}
