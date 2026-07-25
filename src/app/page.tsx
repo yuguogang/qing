@@ -140,6 +140,11 @@ export default function Home() {
     setLastPlayedNote(noteName);
     setActiveNotes((prev) => new Set(prev).add(noteNumber));
 
+    // 播放声音
+    if (audioEngineRef.current) {
+      audioEngineRef.current.playNote(noteNumber, 0.5, volume / 100);
+    }
+
     // 简单验证：暂时只记录音符被弹奏
     // 完整实现需要与谱面预期音符比较
     setIsCorrect(true);
@@ -154,7 +159,7 @@ export default function Home() {
         return next;
       });
     }, 500);
-  }, []);
+  }, [volume]);
 
   // MIDI hook
   const { connections, isSupported, connect, disconnect } = useMIDI({
