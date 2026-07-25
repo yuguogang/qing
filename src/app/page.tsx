@@ -65,6 +65,14 @@ export default function Home() {
 
   const accuracy = calculateAccuracy(correctNotes, totalNotes);
 
+  // 虚拟键盘音符处理
+  const handleNoteOn = useCallback((noteNumber: number) => {
+    handleNotePlay(noteNumber);
+  }, [handleNotePlay]);
+
+  // 当前音符（用于虚拟键盘高亮）
+  const currentNote = null; // TODO: 从乐谱中获取当前应弹奏的音符
+
   const handlePlay = useCallback(() => {
     setIsPlaying(true);
   }, []);
@@ -131,15 +139,26 @@ export default function Home() {
 
       {/* 主体内容 */}
       <div className="flex-1 flex overflow-hidden">
-        {/* 乐谱显示区 */}
-        <main className="flex-1 overflow-auto" style={{ minHeight: '600px' }}>
-          <ScoreViewer
-            musicXml={selectedScore.content}
-            anchorMode={anchorMode}
-            isPlaying={isPlaying}
-            currentMeasure={currentMeasure}
-          />
-        </main>
+        {/* 左侧：乐谱 + 虚拟键盘 */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* 乐谱显示区 */}
+          <main className="flex-1 overflow-auto" style={{ minHeight: '400px' }}>
+            <ScoreViewer
+              musicXml={selectedScore.content}
+              anchorMode={anchorMode}
+              isPlaying={isPlaying}
+              currentMeasure={currentMeasure}
+            />
+          </main>
+
+          {/* 虚拟键盘区 */}
+          <div className="border-t bg-card p-4">
+            <VirtualKeyboard
+              onNotePlay={handleNoteOn}
+              activeNotes={activeNotes}
+            />
+          </div>
+        </div>
 
         {/* 右侧面板 */}
         <aside className="w-72 border-l bg-card p-4 space-y-4 overflow-y-auto">
