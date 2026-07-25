@@ -87,16 +87,6 @@ export default function ScoreViewer({
         // 创建 OSMD 实例，启用 cursor
         const osmd = createOsmdInstance(container, config);
 
-        // 启用 cursor（cursorsOptions 是 OSMD 正确的属性名）
-        osmd.setOptions({
-          cursorsOptions: [{
-            follow: true,
-            type: 0,
-            color: '#3B82F6',
-            alpha: 0.7,
-          }],
-        });
-
         osmdRef.current = osmd;
 
         console.log('[ScoreViewer] OSMD instance created, loading MusicXML...');

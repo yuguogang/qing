@@ -54,8 +54,14 @@ export function createOsmdInstance(
     drawPartNames: true,
     newPageFromXML: false,
     pageFormat: 'A4',
-    disableCursor: false, // 启用内置光标
-    followCursor: true,  // 光标跟随滚动
+    disableCursor: false,
+    followCursor: true,
+    cursorsOptions: [{
+      follow: true,
+      type: 0,
+      color: '#3B82F6',
+      alpha: 0.7,
+    }],
   });
 
   return osmd;
