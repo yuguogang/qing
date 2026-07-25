@@ -157,6 +157,11 @@ export class PianoAudioEngine {
     return this.isPlaying;
   }
 
+  // 获取 AudioContext（用于提示音等）
+  getAudioContext(): AudioContext | null {
+    return this.audioContext;
+  }
+
   // 销毁引擎
   dispose(): void {
     this.stop();

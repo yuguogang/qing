@@ -10,6 +10,7 @@ import {
   DEFAULT_CONFIG,
 } from '@/lib/osmd-utils';
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+import type { TimingGrade } from '@/lib/practice-controller';
 
 interface ScoreViewerProps {
   /** MusicXML 内容 */
@@ -22,6 +23,10 @@ interface ScoreViewerProps {
   isPlaying?: boolean;
   /** 当前小节 */
   currentMeasure?: number;
+  /** 光标进度 (0-1) */
+  cursorProgress?: number;
+  /** 上次判定结果 */
+  lastGrade?: TimingGrade | null;
 }
 
 export default function ScoreViewer({
@@ -30,6 +35,8 @@ export default function ScoreViewer({
   anchorMode = true,
   isPlaying = false,
   currentMeasure = 1,
+  cursorProgress = 0,
+  lastGrade,
 }: ScoreViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
@@ -40,10 +47,19 @@ export default function ScoreViewer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<string>('');
+  const [showGrade, setShowGrade] = useState(false);
+
+  // 显示判定动画
+  useEffect(() => {
+    if (lastGrade && isPlaying) {
+      setShowGrade(true);
+      const timer = setTimeout(() => setShowGrade(false), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [lastGrade, isPlaying]);
 
   // 初始化 OSMD 并加载乐谱
   useEffect(() => {
-    // 确保在浏览器环境中运行
     if (typeof window === 'undefined') return;
     if (!containerRef.current || !musicXml) return;
 
@@ -56,94 +72,41 @@ export default function ScoreViewer({
 
         console.log('[ScoreViewer] Initializing OSMD...');
 
-        // 等待 DOM 完全就绪
         await new Promise(resolve => setTimeout(resolve, 200));
 
-        // 清理旧实例
         if (osmdRef.current) {
           osmdRef.current = null;
         }
 
-        // 清空容器
         const container = containerRef.current;
         if (!container) return;
         container.innerHTML = '';
 
-        // 创建 OSMD 实例
         const osmd = createOsmdInstance(container, config);
         osmdRef.current = osmd;
 
         console.log('[ScoreViewer] OSMD instance created, loading MusicXML...');
 
-        // 加载并渲染
         await loadAndRender(osmd, musicXml, config.zoom);
 
         console.log('[ScoreViewer] MusicXML loaded and rendered');
 
         if (cancelled) return;
 
-        // 应用 CSS 缩放
         const svg = container.querySelector('svg');
         if (svg && config.zoom !== 1) {
           svg.style.transform = `scale(${config.zoom})`;
           svg.style.transformOrigin = 'top left';
         }
 
-        // 应用三色锚线
         if (config.anchorMode && containerRef.current) {
-          // 等待 SVG 完全渲染
           await new Promise(resolve => setTimeout(resolve, 1000));
           requestAnimationFrame(() => {
             if (containerRef.current) {
-              const svg = containerRef.current.querySelector('svg');
-              if (svg) {
-                const allElements = svg.querySelectorAll('*');
-                const lineElements = svg.querySelectorAll('line');
-                const pathElements = svg.querySelectorAll('path');
-                const rectElements = svg.querySelectorAll('rect');
-                
-                const debugText = `SVG: ${allElements.length} elements, ${lineElements.length} lines, ${pathElements.length} paths, ${rectElements.length} rects`;
-                setDebugInfo(debugText);
-                console.log('[ScoreViewer] SVG debug:', debugText);
-                
-                // 输出前 20 个元素的详细信息
-                const sampleElements = Array.from(allElements).slice(0, 20).map(el => ({
-                  tag: el.tagName,
-                  class: el.getAttribute('class'),
-                  x: el.getAttribute('x') || el.getAttribute('x1'),
-                  y: el.getAttribute('y') || el.getAttribute('y1'),
-                  width: el.getAttribute('width'),
-                  height: el.getAttribute('height')
-                }));
-                console.log('[ScoreViewer] Sample elements:', JSON.stringify(sampleElements, null, 2));
-                
-                // 保存 SVG 结构到文件供调试
-                if (typeof window !== 'undefined') {
-                  const sampleLines = Array.from(lineElements).slice(0, 10).map(el => ({
-                    tag: el.tagName,
-                    x1: el.getAttribute('x1'),
-                    y1: el.getAttribute('y1'),
-                    x2: el.getAttribute('x2'),
-                    y2: el.getAttribute('y2'),
-                    stroke: el.getAttribute('stroke'),
-                    'stroke-width': el.getAttribute('stroke-width')
-                  }));
-                  const samplePaths = Array.from(pathElements).slice(0, 10).map(el => ({
-                    tag: el.tagName,
-                    d: el.getAttribute('d')?.substring(0, 100),
-                    stroke: el.getAttribute('stroke'),
-                    fill: el.getAttribute('fill')
-                  }));
-                  console.log('[ScoreViewer] Sample lines:', JSON.stringify(sampleLines, null, 2));
-                  console.log('[ScoreViewer] Sample paths:', JSON.stringify(samplePaths, null, 2));
-                }
-              }
-              
               console.log('[ScoreViewer] Calling applyAnchorColors...');
               const anchorResult = applyAnchorColors(containerRef.current, config);
               console.log('[ScoreViewer] Anchor colors applied:', anchorResult);
               
-              // 更新调试信息
               if (anchorResult) {
                 setDebugInfo(`SVG: ${anchorResult.totalElements} elements | Lines: ${anchorResult.horizontalLinesCount}, Staff: ${anchorResult.staffLinesFound}`);
               }
@@ -167,17 +130,15 @@ export default function ScoreViewer({
     };
   }, [musicXml, config.anchorMode]);
 
-  // 监听容器尺寸变化，自动重新渲染
+  // 监听容器尺寸变化
   useEffect(() => {
     if (!containerRef.current || !osmdRef.current) return;
 
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        // 只有当尺寸大于 0 时才重新渲染
         if (width > 0 && height > 0 && osmdRef.current) {
           console.log('[ScoreViewer] Container resized:', width, height);
-          // 重新渲染以适应新尺寸
           loadAndRender(osmdRef.current, musicXml, config.zoom).then(() => {
             if (containerRef.current && config.anchorMode) {
               requestAnimationFrame(() => {
@@ -198,11 +159,10 @@ export default function ScoreViewer({
     };
   }, [musicXml, config.anchorMode]);
 
-  // 缩放处理 - 使用 CSS transform 实现实时缩放
+  // 缩放处理
   const handleZoomChange = useCallback(
     (newZoom: number) => {
       setConfig((prev) => ({ ...prev, zoom: newZoom }));
-      // 使用 CSS transform 实现即时缩放反馈
       if (containerRef.current) {
         const svg = containerRef.current.querySelector('svg');
         if (svg) {
@@ -219,13 +179,11 @@ export default function ScoreViewer({
     setConfig((prev) => {
       const newConfig = { ...prev, anchorMode: !prev.anchorMode };
       if (containerRef.current) {
-        // 重新渲染以应用/移除锚线颜色
         const svg = containerRef.current.querySelector('svg');
         if (svg) {
           if (newConfig.anchorMode) {
             applyAnchorColors(containerRef.current, newConfig);
           } else {
-            // 移除所有锚线颜色，恢复默认
             const lines = svg.querySelectorAll('line, path');
             lines.forEach((line) => {
               const el = line as SVGElement;
@@ -238,6 +196,13 @@ export default function ScoreViewer({
       return newConfig;
     });
   }, []);
+
+  // 判定等级对应的样式
+  const gradeStyles = {
+    perfect: { bg: 'bg-yellow-400', text: 'text-yellow-600', label: '完美' },
+    good: { bg: 'bg-green-400', text: 'text-green-600', label: '良好' },
+    miss: { bg: 'bg-red-400', text: 'text-red-600', label: '偏差' },
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -297,13 +262,22 @@ export default function ScoreViewer({
               </div>
               <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
                 <div 
-                  className="h-full bg-red-500 transition-all duration-300"
-                  style={{ width: `${((currentMeasure || 1) / 8) * 100}%` }}
+                  className="h-full bg-red-500 transition-all duration-100"
+                  style={{ width: `${cursorProgress * 100}%` }}
                 />
               </div>
               <span className="text-sm text-gray-600">
                 第 {currentMeasure || 1} / 8 小节
               </span>
+            </div>
+          </div>
+        )}
+
+        {/* 判定显示 */}
+        {showGrade && lastGrade && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20">
+            <div className={`${gradeStyles[lastGrade].bg} text-white px-6 py-2 rounded-full text-lg font-bold shadow-lg animate-bounce`}>
+              {gradeStyles[lastGrade].label}
             </div>
           </div>
         )}
@@ -342,13 +316,13 @@ export default function ScoreViewer({
             transition: 'opacity 0.3s ease'
           }}
         >
-          {/* 移动光标 - MuseScore 风格 */}
+          {/* 移动光标 - 按节拍精确移动 */}
           {isPlaying && (
             <div
               className="absolute top-0 bottom-0 w-0.5 bg-blue-500 pointer-events-none z-10"
               style={{
-                left: `${((currentMeasure || 1) - 1) / 7 * 100}%`,
-                transition: 'left 0.3s linear',
+                left: `${cursorProgress * 100}%`,
+                transition: 'left 0.05s linear',
                 boxShadow: '0 0 8px rgba(59, 130, 246, 0.6)'
               }}
             >

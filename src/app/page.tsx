@@ -5,16 +5,18 @@ import { Music } from "lucide-react";
 import ScoreViewer from "@/components/ScoreViewer";
 import { PracticeControls } from "@/components/PracticeControls";
 import { MIDIStatus } from "@/components/MIDIStatus";
-import { PracticeStats } from "@/components/PracticeStats";
+import { PracticeStatsPanel } from "@/components/PracticeStats";
 import { VirtualKeyboard } from "@/components/VirtualKeyboard";
 import { ResizableSplit } from "@/components/ResizableSplit";
 import { useMIDI } from "@/hooks/useMIDI";
-import { midiToNoteName, calculateAccuracy } from "@/lib/note-matching";
+import { usePractice, type PracticeMode } from "@/hooks/use-practice";
+import { midiToNoteName } from "@/lib/note-matching";
 import type { MIDINoteEvent } from "@/hooks/useMIDI";
 import { beyerNo1Xml } from "@/lib/scores/beyer-no1";
-import { PianoAudioEngine } from "@/lib/audio-engine";
+import { PianoAudioEngine, type PianoNote } from "@/lib/audio-engine";
 import { parseMusicXMLNotes } from "@/lib/musicxml-parser";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const SAMPLE_SCORES = [
   { id: "beyer-1", name: "拜厄 No.1", content: beyerNo1Xml },
@@ -22,12 +24,11 @@ const SAMPLE_SCORES = [
 
 export default function Home() {
   const [selectedScore, setSelectedScore] = useState(SAMPLE_SCORES[0]);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [tempo, setTempo] = useState(80);
   const [volume, setVolume] = useState(80);
-  const [currentMeasure, setCurrentMeasure] = useState(1);
   const [totalMeasures, setTotalMeasures] = useState(8);
   const [anchorMode, setAnchorMode] = useState(true);
+  const [practiceMode, setPracticeMode] = useState<PracticeMode>('follow');
 
   // UI toggles
   const [showKeyboard, setShowKeyboard] = useState(true);
@@ -35,13 +36,14 @@ export default function Home() {
 
   // 音频引擎
   const audioEngineRef = useRef<PianoAudioEngine | null>(null);
-  const playTimeoutsRef = useRef<number[]>([]);
-  const [parsedNotes, setParsedNotes] = useState<Array<{ midi: number; duration: number; startTime: number }>>([]);
+  const [parsedNotes, setParsedNotes] = useState<PianoNote[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   // 初始化音频引擎
   useEffect(() => {
     const engine = new PianoAudioEngine();
     audioEngineRef.current = engine;
+    audioContextRef.current = engine.getAudioContext();
     return () => {
       engine.stop();
     };
@@ -59,7 +61,32 @@ export default function Home() {
     }
   }, [selectedScore]);
 
-  // 播放伴奏（按时间顺序）
+  // 使用练习模式 hook
+  const [audioContextState, setAudioContextState] = useState<AudioContext | null>(null);
+  
+  const {
+    state: practiceState,
+    loadNotes,
+    start,
+    stop,
+    pause,
+    handleKeyPress,
+    reset,
+  } = usePractice(practiceMode, tempo, audioContextState);
+
+  // 同步 audioContext 到 state
+  useEffect(() => {
+    setAudioContextState(audioContextRef.current);
+  }, []);
+
+  // 加载音符到练习控制器
+  useEffect(() => {
+    if (parsedNotes.length > 0) {
+      loadNotes(parsedNotes);
+    }
+  }, [parsedNotes, loadNotes]);
+
+  // 播放伴奏（跟弹模式）
   const playAccompaniment = useCallback(() => {
     if (!audioEngineRef.current || parsedNotes.length === 0) return;
 
@@ -70,52 +97,29 @@ export default function Home() {
 
     // 按时间顺序调度音符
     parsedNotes.forEach((note) => {
-      const delay = note.startTime * secondsPerBeat * 1000; // 转换为毫秒
-      const timeout = window.setTimeout(() => {
+      const delay = note.startTime * secondsPerBeat * 1000;
+      setTimeout(() => {
         engine.playNote(note.midi, note.duration * secondsPerBeat, vol);
       }, delay);
-      playTimeoutsRef.current.push(timeout);
     });
-
-    // 计算总时长
-    const lastNote = parsedNotes[parsedNotes.length - 1];
-    const totalDuration = (lastNote.startTime + lastNote.duration) * secondsPerBeat * 1000;
-    const endTimeout = window.setTimeout(() => {
-      setIsPlaying(false);
-      setCurrentMeasure(totalMeasures);
-    }, totalDuration);
-    playTimeoutsRef.current.push(endTimeout);
-
-    setIsPlaying(true);
-  }, [parsedNotes, tempo, volume, totalMeasures]);
-
-  // 暂停伴奏
-  const stopAccompaniment = useCallback(() => {
-    // 清除所有待播放的定时器
-    playTimeoutsRef.current.forEach((timeout) => {
-      window.clearTimeout(timeout);
-    });
-    playTimeoutsRef.current = [];
-
-    if (audioEngineRef.current) {
-      audioEngineRef.current.stop();
-    }
-    setIsPlaying(false);
-  }, []);
+  }, [parsedNotes, tempo, volume]);
 
   // 处理播放/暂停
   const handlePlayPause = useCallback(() => {
-    if (isPlaying) {
-      stopAccompaniment();
+    if (practiceState.isPlaying) {
+      pause();
     } else {
-      playAccompaniment();
+      // 跟弹模式播放伴奏
+      if (practiceMode === 'follow') {
+        playAccompaniment();
+      }
+      start();
     }
-  }, [isPlaying, playAccompaniment, stopAccompaniment]);
+  }, [practiceState.isPlaying, practiceMode, playAccompaniment, start, pause]);
 
   // 处理速度变化
   const handleTempoChange = useCallback((newTempo: number) => {
     setTempo(newTempo);
-    // 速度变化时需要重新播放才能生效
   }, []);
 
   // 处理音量变化
@@ -126,40 +130,43 @@ export default function Home() {
     }
   }, []);
 
-  // Practice stats
-  const [correctNotes, setCorrectNotes] = useState(0);
-  const [wrongNotes, setWrongNotes] = useState(0);
-  const [totalNotes, setTotalNotes] = useState(0);
-  const [lastPlayedNote, setLastPlayedNote] = useState<string | null>(null);
-  const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
-  const [activeNotes, setActiveNotes] = useState<Set<number>>(new Set());
+  // 处理模式切换
+  const handleModeChange = useCallback((value: string) => {
+    if (value) {
+      setPracticeMode(value as PracticeMode);
+      // 如果正在练习，重置
+      if (practiceState.isPlaying) {
+        reset();
+      }
+    }
+  }, [practiceState.isPlaying, reset]);
+
+  // 重置
+  const handleRestart = useCallback(() => {
+    stop();
+    reset();
+    setTimeout(() => {
+      if (practiceMode === 'follow') {
+        playAccompaniment();
+      }
+      start();
+    }, 100);
+  }, [stop, reset, practiceMode, playAccompaniment, start]);
 
   // 统一的音符处理函数（MIDI 和虚拟键盘共用）
   const handleNotePlay = useCallback((noteNumber: number) => {
     const noteName = midiToNoteName(noteNumber);
-    setLastPlayedNote(noteName);
-    setActiveNotes((prev) => new Set(prev).add(noteNumber));
 
     // 播放声音
     if (audioEngineRef.current) {
       audioEngineRef.current.playNote(noteNumber, 0.5, volume / 100);
     }
 
-    // 简单验证：暂时只记录音符被弹奏
-    // 完整实现需要与谱面预期音符比较
-    setIsCorrect(true);
-    setCorrectNotes((prev) => prev + 1);
-    setTotalNotes((prev) => prev + 1);
+    // 提交到练习控制器进行判定
+    const grade = handleKeyPress(noteNumber);
 
-    // 500ms 后移除激活状态
-    setTimeout(() => {
-      setActiveNotes((prev) => {
-        const next = new Set(prev);
-        next.delete(noteNumber);
-        return next;
-      });
-    }, 500);
-  }, [volume]);
+    return { noteName, grade };
+  }, [volume, handleKeyPress]);
 
   // MIDI hook
   const { connections, isSupported, connect, disconnect } = useMIDI({
@@ -171,33 +178,15 @@ export default function Home() {
     },
   });
 
-  const accuracy = calculateAccuracy(correctNotes, totalNotes);
-
   // 虚拟键盘音符处理
   const handleNoteOn = useCallback((noteNumber: number) => {
     handleNotePlay(noteNumber);
   }, [handleNotePlay]);
 
-  // 当前音符（用于虚拟键盘高亮）
-  const currentNote = null; // TODO: 从乐谱中获取当前应弹奏的音符
-
-  const handlePlay = useCallback(() => {
-    setIsPlaying(true);
-  }, []);
-
-  const handlePause = useCallback(() => {
-    setIsPlaying(false);
-  }, []);
-
-  const handleRestart = useCallback(() => {
-    setIsPlaying(false);
-    setCurrentMeasure(1);
-    setCorrectNotes(0);
-    setWrongNotes(0);
-    setTotalNotes(0);
-    setLastPlayedNote(null);
-    setIsCorrect(null);
-  }, []);
+  // 获取当前应弹奏的音符（用于虚拟键盘高亮）
+  const currentNote = practiceState.currentNoteIndex < parsedNotes.length
+    ? parsedNotes[practiceState.currentNoteIndex]
+    : null;
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -215,6 +204,21 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* 练习模式切换 */}
+            <ToggleGroup
+              type="single"
+              value={practiceMode}
+              onValueChange={handleModeChange}
+              className="border rounded-lg p-1"
+            >
+              <ToggleGroupItem value="follow" className="text-xs px-3">
+                跟弹模式
+              </ToggleGroupItem>
+              <ToggleGroupItem value="sight" className="text-xs px-3">
+                视奏模式
+              </ToggleGroupItem>
+            </ToggleGroup>
+
             {/* 虚拟键盘 Toggle */}
             <Button
               variant="outline"
@@ -241,7 +245,7 @@ export default function Home() {
                 const score = SAMPLE_SCORES.find((s) => s.id === e.target.value);
                 if (score) {
                   setSelectedScore(score);
-                  handleRestart();
+                  reset();
                 }
               }}
               className="px-3 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
@@ -266,8 +270,10 @@ export default function Home() {
                 <ScoreViewer
                   musicXml={selectedScore.content}
                   anchorMode={anchorMode}
-                  isPlaying={isPlaying}
-                  currentMeasure={currentMeasure}
+                  isPlaying={practiceState.isPlaying}
+                  cursorProgress={practiceState.cursorProgress}
+                  currentMeasure={practiceState.currentMeasure}
+                  lastGrade={practiceState.lastGrade}
                 />
               }
               bottomChildren={
@@ -287,7 +293,7 @@ export default function Home() {
                   <div className="flex-1 p-4 overflow-hidden">
                     <VirtualKeyboard
                       onNotePlay={handleNoteOn}
-                      activeNotes={activeNotes}
+                      activeNotes={new Set(currentNote ? [currentNote.midi] : [])}
                     />
                   </div>
                 </div>
@@ -301,8 +307,10 @@ export default function Home() {
               <ScoreViewer
                 musicXml={selectedScore.content}
                 anchorMode={anchorMode}
-                isPlaying={isPlaying}
-                currentMeasure={currentMeasure}
+                isPlaying={practiceState.isPlaying}
+                cursorProgress={practiceState.cursorProgress}
+                currentMeasure={practiceState.currentMeasure}
+                lastGrade={practiceState.lastGrade}
               />
             </div>
           )}
@@ -326,13 +334,12 @@ export default function Home() {
               {/* 练习统计 */}
               <div>
                 <h3 className="text-sm font-medium mb-2">练习统计</h3>
-                <PracticeStats
-                  correctNotes={correctNotes}
-                  wrongNotes={wrongNotes}
-                  totalNotes={totalNotes}
-                  accuracy={accuracy}
-                  lastPlayedNote={lastPlayedNote}
-                  isCorrect={isCorrect}
+                <PracticeStatsPanel
+                  stats={practiceState.stats}
+                  lastGrade={practiceState.lastGrade}
+                  lastDelta={practiceState.lastDelta}
+                  isPlaying={practiceState.isPlaying}
+                  mode={practiceMode}
                 />
               </div>
 
@@ -366,17 +373,17 @@ export default function Home() {
 
       {/* 底部控制栏 */}
       <PracticeControls
-        isPlaying={isPlaying}
+        isPlaying={practiceState.isPlaying}
         tempo={tempo}
         volume={volume}
-        currentMeasure={currentMeasure}
+        currentMeasure={practiceState.currentMeasure}
         totalMeasures={totalMeasures}
         onPlay={handlePlayPause}
         onPause={handlePlayPause}
         onRestart={handleRestart}
         onTempoChange={handleTempoChange}
         onVolumeChange={handleVolumeChange}
-        onMeasureChange={setCurrentMeasure}
+        onMeasureChange={() => {}}
       />
 
       {/* 底部信息 */}

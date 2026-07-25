@@ -63,3 +63,45 @@
 
 - 模板默认预装核心组件库 `shadcn/ui`，位于`src/components/ui/`目录下
 - Next.js 项目**必须默认**采用 shadcn/ui 组件、风格和规范，**除非用户指定用其他的组件和规范。**
+
+## 练琴模式功能
+
+### 核心文件
+
+- `/workspace/projects/src/lib/practice-controller.ts` - 练习控制器，管理光标移动、节拍检测、练习统计
+- `/workspace/projects/src/hooks/use-practice.ts` - React Hook，封装练习控制器的使用
+- `/workspace/projects/src/components/ScoreViewer.tsx` - 乐谱显示组件，支持光标进度显示和判定动画
+- `/workspace/projects/src/components/PracticeStats.tsx` - 练习统计面板，显示连击、准确率、判定结果
+
+### 练习模式类型
+
+```typescript
+type PracticeMode = 'follow' | 'sight';
+// follow: 跟弹模式（伴奏 + 用户按键）
+// sight: 视奏模式（只有节拍光标 + 用户按键）
+```
+
+### 节拍判定规则
+
+- **完美 (Perfect)**: ±100ms 内按下正确键
+- **良好 (Good)**: ±100-300ms 内按下正确键，触发提示音"叮"
+- **偏差 (Miss)**: >±300ms 或按错键，触发提示音"叮"
+
+### 光标移动
+
+光标按曲谱节拍精确移动（基于 MusicXML 解析的音符时值），使用 `cursorProgress` (0-1) 控制位置。
+
+### 关键数据结构
+
+```typescript
+interface PracticeStats {
+  totalNotes: number;      // 总音符数
+  hitNotes: number;        // 已命中音符数
+  perfectCount: number;    // 完美数
+  goodCount: number;       // 良好数
+  missCount: number;       // 偏差数
+  combo: number;           // 当前连击
+  maxCombo: number;        // 最高连击
+  accuracy: number;        // 准确率 (0-100)
+}
+```
