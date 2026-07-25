@@ -336,9 +336,10 @@ export default function ScoreViewer({
           ref={containerRef}
           className="w-full relative"
           style={{ 
-            display: loading || error ? 'none' : 'block', 
             minHeight: '400px',
-            overflow: 'visible'
+            overflow: 'visible',
+            opacity: loading || error ? 0 : 1,
+            transition: 'opacity 0.3s ease'
           }}
         >
           {/* 移动光标 - MuseScore 风格 */}
