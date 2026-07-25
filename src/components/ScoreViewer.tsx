@@ -269,13 +269,28 @@ export default function ScoreViewer({
 
         <div
           ref={containerRef}
-          className="w-full"
+          className="w-full relative"
           style={{ 
             display: loading || error ? 'none' : 'block', 
             minHeight: '400px',
             overflow: 'visible'
           }}
-        />
+        >
+          {/* 移动光标 - MuseScore 风格 */}
+          {isPlaying && (
+            <div
+              className="absolute top-0 bottom-0 w-0.5 bg-blue-500 pointer-events-none z-10"
+              style={{
+                left: `${((currentMeasure || 1) - 1) / 7 * 100}%`,
+                transition: 'left 0.3s linear',
+                boxShadow: '0 0 8px rgba(59, 130, 246, 0.6)'
+              }}
+            >
+              {/* 光标顶部三角形 */}
+              <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-b-6 border-l-transparent border-r-transparent border-b-blue-500" />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
