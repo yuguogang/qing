@@ -198,14 +198,20 @@ export function applyAnchorColors(
     redLine.setAttribute('y1', String(thirdLineY));
     redLine.setAttribute('x2', String(svgWidth));
     redLine.setAttribute('y2', String(thirdLineY));
-    redLine.setAttribute('stroke', ANCHOR_COLORS.middleLine);
-    redLine.setAttribute('stroke-width', '4');
-    redLine.setAttribute('stroke-opacity', '0.9');
-    redLine.style.stroke = ANCHOR_COLORS.middleLine;
-    redLine.style.strokeWidth = '4px';
-    redLine.style.strokeOpacity = '0.9';
+    redLine.setAttribute('stroke', '#FF0000');
+    redLine.setAttribute('stroke-width', '8');
+    redLine.setAttribute('stroke-opacity', '1');
     svg.appendChild(redLine);
     console.log('[Anchor] Added red line at Y:', thirdLineY);
+    
+    // 调试：添加一个红色圆点在最上方
+    const debugCircle = document.createElementNS(svgNS, 'circle');
+    debugCircle.setAttribute('cx', '50');
+    debugCircle.setAttribute('cy', '20');
+    debugCircle.setAttribute('r', '20');
+    debugCircle.setAttribute('fill', '#FF0000');
+    svg.appendChild(debugCircle);
+    console.log('[Anchor] Added debug red circle');
     
     // 创建蓝色线（上加一线）- 虚线
     const blueLine = document.createElementNS(svgNS, 'line');
