@@ -227,7 +227,28 @@ export default function ScoreViewer({
       </div>
 
       {/* 乐谱显示区域 */}
-      <div className="flex-1 overflow-auto bg-gray-50 p-4" style={{ minHeight: '500px' }}>
+      <div className="flex-1 overflow-auto bg-gray-50 p-4 relative" style={{ minHeight: '500px' }}>
+        {/* 播放进度指示器 */}
+        {isPlaying && (
+          <div className="absolute top-4 left-4 right-4 z-10">
+            <div className="flex items-center gap-3 bg-white/90 backdrop-blur-sm rounded-lg px-4 py-2 shadow-lg border">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                <span className="text-sm font-medium">播放中</span>
+              </div>
+              <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-red-500 transition-all duration-300"
+                  style={{ width: `${((currentMeasure || 1) / 8) * 100}%` }}
+                />
+              </div>
+              <span className="text-sm text-gray-600">
+                第 {currentMeasure || 1} / 8 小节
+              </span>
+            </div>
+          </div>
+        )}
+
         {loading && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
