@@ -167,42 +167,50 @@ export function applyAnchorColors(
 
   // 如果找到了五线谱线条，应用颜色
   if (staffLines.length >= 5) {
-    // 第三线（中间那条）- 红色
-    if (staffLines[2]) {
-      applyColor(staffLines[2].el, ANCHOR_COLORS.middleLine);
-      console.log('[Anchor] Applied red to 3rd line at Y:', staffLines[2].bbox.y);
-    }
-    
-    // 查找上加一线（在五线谱上方）
-    const topLineY = staffLines[0].bbox.y;
+    const thirdLineY = staffLines[2].bbox.y;
     const spacing = staffLines[1].bbox.y - staffLines[0].bbox.y;
-    const upperLedgerY = topLineY - spacing;
-    
-    horizontalLines.forEach(({ el, bbox }) => {
-      if (Math.abs(bbox.y - upperLedgerY) < spacing * 0.5) {
-        applyColor(el, ANCHOR_COLORS.upperLedger);
-        console.log('[Anchor] Applied blue to upper ledger at Y:', bbox.y);
-      }
-    });
-    
-    // 查找下加一线（在五线谱下方）
+    const topLineY = staffLines[0].bbox.y;
     const bottomLineY = staffLines[4].bbox.y;
+    const upperLedgerY = topLineY - spacing;
     const lowerLedgerY = bottomLineY + spacing;
     
+    console.log('[Anchor] Third line Y:', thirdLineY, 'Spacing:', spacing);
+    console.log('[Anchor] Upper ledger Y:', upperLedgerY, 'Lower ledger Y:', lowerLedgerY);
+    
+    // 遍历所有水平线，根据 Y 坐标应用颜色
     horizontalLines.forEach(({ el, bbox }) => {
-      if (Math.abs(bbox.y - lowerLedgerY) < spacing * 0.5) {
+      const y = bbox.y;
+      
+      // 第三线（允许一定误差）
+      if (Math.abs(y - thirdLineY) < spacing * 0.3) {
+        applyColor(el, ANCHOR_COLORS.middleLine);
+      }
+      // 上加一线
+      else if (Math.abs(y - upperLedgerY) < spacing * 0.5) {
+        applyColor(el, ANCHOR_COLORS.upperLedger);
+      }
+      // 下加一线
+      else if (Math.abs(y - lowerLedgerY) < spacing * 0.5) {
         applyColor(el, ANCHOR_COLORS.lowerLedger);
-        console.log('[Anchor] Applied green to lower ledger at Y:', bbox.y);
       }
     });
+    
+    console.log('[Anchor] Colors applied to all matching lines');
   } else {
     console.log('[Anchor] No staff lines found, trying simpler approach');
     // 简化方法：直接对前几条水平线着色
     if (horizontalLines.length >= 5) {
       // 假设前 5 条是五线谱
       const simpleStaff = horizontalLines.slice(0, 5);
-      applyColor(simpleStaff[2].el, ANCHOR_COLORS.middleLine);
-      console.log('[Anchor] Simple approach: applied red to line at Y:', simpleStaff[2].bbox.y);
+      const simpleThirdY = simpleStaff[2].bbox.y;
+      const simpleSpacing = simpleStaff[1].bbox.y - simpleStaff[0].bbox.y;
+      
+      horizontalLines.forEach(({ el, bbox }) => {
+        if (Math.abs(bbox.y - simpleThirdY) < simpleSpacing * 0.3) {
+          applyColor(el, ANCHOR_COLORS.middleLine);
+        }
+      });
+      console.log('[Anchor] Simple approach applied');
     }
   }
 }
