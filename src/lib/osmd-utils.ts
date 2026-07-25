@@ -178,6 +178,9 @@ export function applyAnchorColors(
     console.log('[Anchor] Upper ledger Y:', upperLedgerY, 'Lower ledger Y:', lowerLedgerY);
     
     // 遍历所有水平线，根据 Y 坐标应用颜色
+    let foundUpperLedger = false;
+    let foundLowerLedger = false;
+    
     horizontalLines.forEach(({ el, bbox }) => {
       const y = bbox.y;
       
@@ -188,12 +191,46 @@ export function applyAnchorColors(
       // 上加一线
       else if (Math.abs(y - upperLedgerY) < spacing * 0.5) {
         applyColor(el, ANCHOR_COLORS.upperLedger);
+        foundUpperLedger = true;
       }
       // 下加一线
       else if (Math.abs(y - lowerLedgerY) < spacing * 0.5) {
         applyColor(el, ANCHOR_COLORS.lowerLedger);
+        foundLowerLedger = true;
       }
     });
+    
+    console.log('[Anchor] Found upper ledger:', foundUpperLedger, 'lower ledger:', foundLowerLedger);
+    
+    // 如果乐谱中没有上加一线或下加一线，主动绘制
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svgWidth = svg.viewBox.baseVal.width || svg.clientWidth || 1000;
+    
+    if (!foundUpperLedger) {
+      const upperLine = document.createElementNS(svgNS, 'line');
+      upperLine.setAttribute('x1', '0');
+      upperLine.setAttribute('y1', String(upperLedgerY));
+      upperLine.setAttribute('x2', String(svgWidth));
+      upperLine.setAttribute('y2', String(upperLedgerY));
+      upperLine.setAttribute('stroke', ANCHOR_COLORS.upperLedger);
+      upperLine.setAttribute('stroke-width', '2');
+      upperLine.setAttribute('stroke-dasharray', '5,5'); // 虚线表示参考线
+      svg.appendChild(upperLine);
+      console.log('[Anchor] Added upper ledger line');
+    }
+    
+    if (!foundLowerLedger) {
+      const lowerLine = document.createElementNS(svgNS, 'line');
+      lowerLine.setAttribute('x1', '0');
+      lowerLine.setAttribute('y1', String(lowerLedgerY));
+      lowerLine.setAttribute('x2', String(svgWidth));
+      lowerLine.setAttribute('y2', String(lowerLedgerY));
+      lowerLine.setAttribute('stroke', ANCHOR_COLORS.lowerLedger);
+      lowerLine.setAttribute('stroke-width', '2');
+      lowerLine.setAttribute('stroke-dasharray', '5,5'); // 虚线表示参考线
+      svg.appendChild(lowerLine);
+      console.log('[Anchor] Added lower ledger line');
+    }
     
     console.log('[Anchor] Colors applied to all matching lines');
   } else {
