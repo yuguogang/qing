@@ -127,6 +127,15 @@ while (!iterator.EndReached) {
 - `../raw/tech-research/20260726_OSMD_ProcessingFlow.md`
 - `../raw/tech-research/20260726_OSMD_ObjectModel.md`
 - `../raw/tech-research/20260726_OSMD_NoteTiming.md`
+- `../raw/tech-research/20260726_OSMD_BuildInstructions.md`
+- `../raw/tech-research/20260726_OSMD_Debugging.md`
+- `../raw/tech-research/20260726_OSMD_DirectoryLayout.md`
+- `../raw/tech-research/20260726_OSMD_ClassDocumentation.md`
+- `../raw/tech-research/20260726_OSMD_Testing.md`
+- `../raw/tech-research/20260726_OSMD_ExploringDemo.md`
+- `../raw/tech-research/20260726_OSMD_Exporting.md`
+- `../raw/tech-research/20260726_OSMD_Transposing.md`
+- `../raw/tech-research/20260726_OSMD_Contributing.md`
 
 ## 关联页面
 - [[乐谱渲染引擎对比]]
@@ -135,3 +144,9 @@ while (!iterator.EndReached) {
 - [[OSMD处理流程]]
 - [[OSMD对象模型]]
 - [[音符时序提取]]
+- [[OSMD构建与调试]]
+- [[OSMD代码结构]]
+- [[OSMD导出]]
+- [[OSMD移调]]
+- [[OSMD Demo 探索]]
+- [[OSMD测试]]

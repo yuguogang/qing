@@ -2,7 +2,7 @@
 title: 清谱项目知识图谱 - 全局概览
 status: ready
 owners: 清谱项目组
-source_count: 10
+source_count: 19
 last_reviewed: 2026-07-26
 sensitivity: internal
 ---
@@ -25,6 +25,12 @@ sensitivity: internal
 - [[OSMD处理流程]] — OSMD 内部处理 MusicXML 的完整流程
 - [[OSMD对象模型]] — OSMD 与 VexFlow 对象模型对比
 - [[音符时序提取]] — 从 OSMD 提取音符时间戳的方法
+- [[OSMD构建与调试]] — OSMD 构建流程与本地调试方法
+- [[OSMD代码结构]] — OSMD 目录布局与关键类
+- [[OSMD导出]] — PNG/SVG/PDF 导出方案
+- [[OSMD移调]] — 半音移调与单乐器移调
+- [[OSMD Demo 探索]] — 在线 Demo 控制台交互技巧
+- [[OSMD测试]] — 视觉回归测试与单元测试
 
 ### 实体页 (entities/)
 - [[OSMD]] — OpenSheetMusicDisplay 引擎详情
@@ -51,3 +57,6 @@ sensitivity: internal
 - [[三色锚线 IP 归属确认]] → [[三色锚线识谱法]]（合伙人自有 IP）
 - [[OSMD]] → [[OSMD处理流程]] → [[OSMD对象模型]] → [[音符时序提取]]
 - [[音符时序提取]] → [[实时拾音纠错]]（练琴模式核心技术）
+- [[OSMD]] → [[OSMD构建与调试]] → [[OSMD代码结构]]
+- [[OSMD]] → [[OSMD导出]] → [[OSMD移调]]
+- [[OSMD Demo 探索]] → [[OSMD测试]]
