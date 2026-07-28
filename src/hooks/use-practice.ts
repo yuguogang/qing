@@ -17,6 +17,7 @@ export interface PracticeHookState {
   stats: PracticeStats;
   lastGrade: TimingGrade | null;
   lastDelta: number;
+  cursorNotes: number[];
 }
 
 export function usePractice(
@@ -47,6 +48,7 @@ export function usePractice(
     },
     lastGrade: null,
     lastDelta: 0,
+    cursorNotes: [],
   });
 
   // 初始化控制器
@@ -149,9 +151,12 @@ export function usePractice(
           currentCursorStep: controller.getCurrentCursorStep(),
         }));
       },
-      onCursorNotes: (_midiNotes) => {
-        // 音符高亮由 PracticeController 内部处理
-        // 这里可以用于 UI 更新（如显示当前音符名）
+      onCursorNotes: (midiNotes) => {
+        console.log('[usePractice onCursorNotes]', midiNotes);
+        setState(prev => ({
+          ...prev,
+          cursorNotes: midiNotes,
+        }));
       },
       onComplete: (stats) => {
         stopPolling();
@@ -208,6 +213,10 @@ export function usePractice(
     return controllerRef.current?.handleKeyPress(midiNote) || null;
   }, []);
 
+  const getStartTime = useCallback((): number => {
+    return controllerRef.current?.getStartTime() || 0;
+  }, []);
+
   // 重置
   const reset = useCallback(() => {
     controllerRef.current?.stop();
@@ -230,6 +239,7 @@ export function usePractice(
       },
       lastGrade: null,
       lastDelta: 0,
+      cursorNotes: [],
     }));
   }, [stopPolling]);
 
@@ -242,5 +252,6 @@ export function usePractice(
     pause,
     handleKeyPress,
     reset,
+    getStartTime,
   };
 }

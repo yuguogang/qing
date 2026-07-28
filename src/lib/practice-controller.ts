@@ -159,11 +159,9 @@ export class PracticeController {
     if (this.osmd?.cursor) {
       this.osmd.cursor.reset();
       this.osmd.cursor.show();
-      // Tailwind CSS 的 img { height: auto } 会覆盖光标 img 的高度，需要重置
+      // 确保光标元素在 render 后仍然可见（Tailwind img 高度问题已在 globals.css 处理）
       requestAnimationFrame(() => {
-        document.querySelectorAll('#cursorImg-0').forEach(el => {
-          (el as HTMLElement).style.height = '';
-        });
+        this.osmd?.cursor.show();
       });
     }
 
@@ -212,9 +210,6 @@ export class PracticeController {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
     }
-
-    // 清除高亮
-    this.clearHighlight();
 
     // 隐藏光标
     if (this.osmd?.cursor) {
@@ -327,19 +322,24 @@ export class PracticeController {
   }
 
   /**
-   * 高亮光标下的音符 — 使用 OSMD cursor.NotesUnderCursor()
-   * 
-   * 获取光标当前位置的所有音符，通过修改 noteheadColor 实现实时高亮。
-   * 之前高亮的音符会被还原。
+   * 收集光标下的音符并通过回调通知外部。
+   *
+   * 不再调用 osmd.render() 改变符头颜色，因为：
+   * 1. render() 会重建整个 SVG，导致三色锚线等手动绘制的覆盖层丢失；
+   * 2. OSMD 内置光标本身已能清晰指示当前位置，过度高亮反而造成闪烁。
+   * 外部（如虚拟键盘）可通过 onCursorNotes 回调获知当前需要弹奏的音。
    */
   private highlightCurrentNotes() {
-    if (!this.osmd?.cursor) return;
+    if (!this.osmd?.cursor) {
+      console.log('[highlightCurrentNotes] no cursor');
+      return;
+    }
 
     try {
       const notes = this.osmd.cursor.NotesUnderCursor();
+      console.log('[highlightCurrentNotes] notes count', notes.length);
       const currentMidis: number[] = [];
 
-      // 收集当前光标下的 MIDI 编号
       for (const note of notes) {
         if (!note.isRest()) {
           const pitch = note.Pitch;
@@ -350,74 +350,18 @@ export class PracticeController {
         }
       }
 
-      // 只在新音符出现时更新高亮
-      const hasChanged = 
+      console.log('[highlightCurrentNotes] currentMidis', currentMidis);
+
+      const hasChanged =
         currentMidis.length !== this.lastHighlightedMidis.length ||
         currentMidis.some((m, i) => m !== this.lastHighlightedMidis[i]);
 
       if (hasChanged) {
-        // 还原之前高亮的音符
-        this.clearHighlight();
-
-        // 高亮当前音符（金色发光）
-        for (const note of notes) {
-          if (!note.isRest()) {
-            try {
-              note.NoteheadColor = '#F59E0B'; // amber-500
-            } catch {
-              // 某些音符可能无法设置颜色
-            }
-          }
-        }
-
-        // 重新渲染以应用颜色变化
-        if (notes.length > 0) {
-          this.osmd.render();
-          // 重新显示光标（render 后光标可能被隐藏）
-          this.osmd.cursor.show();
-        }
-
         this.lastHighlightedMidis = currentMidis;
         this.callbacks.onCursorNotes?.(currentMidis);
       }
-    } catch {
-      // 忽略异常
-    }
-  }
-
-  /** 清除所有音符高亮 */
-  private clearHighlight() {
-    if (!this.osmd) return;
-
-    try {
-      // 遍历所有 measure 还原音符颜色
-      const measures = this.osmd.Sheet?.SourceMeasures;
-      if (measures) {
-        for (const measure of measures) {
-          const containers = measure.VerticalSourceStaffEntryContainers;
-          if (!containers) continue;
-          for (const container of containers) {
-            const entries = container.StaffEntries;
-            if (!entries) continue;
-            for (const entry of entries) {
-              const voiceEntries = entry.VoiceEntries;
-              if (!voiceEntries) continue;
-              for (const ve of voiceEntries) {
-                const veNotes = ve.Notes;
-                if (!veNotes) continue;
-                for (const n of veNotes) {
-                  if (n.NoteheadColor === '#F59E0B') {
-                    n.NoteheadColor = '';
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-      this.lastHighlightedMidis = [];
-    } catch {
-      // 忽略
+    } catch (err) {
+      console.log('[highlightCurrentNotes] error', err);
     }
   }
 
@@ -557,6 +501,10 @@ export class PracticeController {
 
   getCurrentTime(): number {
     return this.currentTime;
+  }
+
+  getStartTime(): number {
+    return this.startTime;
   }
 
   getCurrentCursorStep(): number {

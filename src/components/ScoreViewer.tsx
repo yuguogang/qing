@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   createOsmdInstance,
   loadAndRender,
@@ -37,12 +37,13 @@ export default function ScoreViewer({
 }: ScoreViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
-  const [config] = useState<OsmdConfig>({ ...DEFAULT_CONFIG, zoom, anchorMode });
+  const config = useMemo<OsmdConfig>(() => ({ ...DEFAULT_CONFIG, anchorMode }), [anchorMode]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showGrade, setShowGrade] = useState(false);
   const hasAppliedAnchorRef = useRef(false);
   const hasAppliedSpectrumRef = useRef(false);
+  const loadSuccessRef = useRef(false);
 
   // 判定动画
   useEffect(() => {
@@ -61,6 +62,7 @@ export default function ScoreViewer({
     let cancelled = false;
     hasAppliedAnchorRef.current = false;
     hasAppliedSpectrumRef.current = false;
+    loadSuccessRef.current = false;
 
     async function init() {
       try {
@@ -73,7 +75,7 @@ export default function ScoreViewer({
         if (!container || cancelled) return;
         container.innerHTML = '';
 
-        const osmd = createOsmdInstance(container, { ...config, zoom });
+        const osmd = createOsmdInstance(container, config);
         osmdRef.current = osmd;
 
         await loadAndRender(osmd, musicXml, zoom);
@@ -81,6 +83,9 @@ export default function ScoreViewer({
         if (osmd.cursor) {
           osmd.cursor.hide();
         }
+
+        loadSuccessRef.current = true;
+        console.log('[ScoreViewer init success]', { spectrumMode, anchorMode });
 
         if (cancelled) return;
 
@@ -90,7 +95,18 @@ export default function ScoreViewer({
         await new Promise(resolve => setTimeout(resolve, 800));
         if (cancelled) return;
 
-        // 应用锚线颜色
+        // 应用七色谱（需在 render 前设置 noteheadColor）
+        if (spectrumMode && osmdRef.current) {
+          applySpectrumColors(osmdRef.current);
+          hasAppliedSpectrumRef.current = true;
+        }
+
+        // 重新渲染以应用七色谱
+        if (spectrumMode && osmdRef.current) {
+          osmdRef.current.render();
+        }
+
+        // 应用锚线颜色（render 后插入 SVG 覆盖线）
         if (anchorMode && osmdRef.current && containerRef.current) {
           requestAnimationFrame(() => {
             if (osmdRef.current && containerRef.current) {
@@ -100,20 +116,12 @@ export default function ScoreViewer({
           });
         }
 
-        // 应用七色谱
-        if (spectrumMode && containerRef.current) {
-          requestAnimationFrame(() => {
-            if (containerRef.current) {
-              applySpectrumColors(containerRef.current);
-              hasAppliedSpectrumRef.current = true;
-            }
-          });
-        }
-
         setLoading(false);
       } catch (err) {
         console.error('[ScoreViewer] Error:', err);
         if (!cancelled) {
+          osmdRef.current = null;
+          loadSuccessRef.current = false;
           setError(err instanceof Error ? err.message : '乐谱加载失败');
           setLoading(false);
         }
@@ -124,38 +132,30 @@ export default function ScoreViewer({
     return () => { cancelled = true; };
   }, [musicXml]);
 
-  // 锚线模式切换
+  // 显示模式切换（锚线 / 七色谱）统一处理
+  // 先完成 OSMD render，再在下一帧绘制锚线，避免 render 覆盖锚线
   useEffect(() => {
-    if (!containerRef.current || !osmdRef.current || loading) return;
-    const svg = containerRef.current.querySelector('svg');
-    if (!svg) return;
-
-    if (anchorMode) {
-      if (!hasAppliedAnchorRef.current) {
-        applyAnchorColors(containerRef.current, config);
-        hasAppliedAnchorRef.current = true;
-      }
-    } else {
-      const anchorLines = svg.querySelectorAll('[data-anchor-line]');
-      anchorLines.forEach((line) => line.remove());
-      hasAppliedAnchorRef.current = false;
-    }
-  }, [anchorMode, loading]);
-
-  // 七色谱模式切换
-  useEffect(() => {
-    if (!containerRef.current || loading) return;
+    console.log('[ScoreViewer mode effect]', { spectrumMode, anchorMode, loading, loadSuccess: loadSuccessRef.current, hasOsmd: !!osmdRef.current });
+    if (!osmdRef.current || loading || !loadSuccessRef.current) return;
 
     if (spectrumMode) {
-      if (!hasAppliedSpectrumRef.current) {
-        applySpectrumColors(containerRef.current);
-        hasAppliedSpectrumRef.current = true;
-      }
+      applySpectrumColors(osmdRef.current);
+      hasAppliedSpectrumRef.current = true;
     } else {
-      clearSpectrumColors(containerRef.current);
+      clearSpectrumColors(osmdRef.current);
       hasAppliedSpectrumRef.current = false;
     }
-  }, [spectrumMode, loading]);
+
+    osmdRef.current.render();
+
+    if (anchorMode && containerRef.current) {
+      requestAnimationFrame(() => {
+        if (osmdRef.current && containerRef.current) {
+          applyAnchorColors(containerRef.current, config);
+        }
+      });
+    }
+  }, [anchorMode, spectrumMode, loading, config]);
 
   // 缩放
   useEffect(() => {
@@ -167,15 +167,58 @@ export default function ScoreViewer({
     }
   }, [zoom]);
 
+  // 监听 OSMD 光标元素：把 height 属性同步到 style.height，防止 Tailwind 覆盖。
+  // OSMD 光标是一张 30x1 像素的 PNG，它通过设置 img 的 height 属性来纵向拉伸，
+  // 从而形成半透明、带边缘模糊的光标效果。Tailwind 的 img { height: auto }
+  // 会覆盖该属性，因此我们需要在元素出现或 height 属性变化时同步到 style.height。
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const container = containerRef.current;
+
+    const syncCursorHeight = (img: HTMLImageElement) => {
+      const h = img.getAttribute('height');
+      if (h && img.style.height !== `${h}px`) {
+        img.style.height = `${h}px`;
+      }
+    };
+
+    const observer = new MutationObserver((mutations) => {
+      let shouldSyncAll = false;
+      for (const mutation of mutations) {
+        if (mutation.type === 'childList') {
+          for (const node of mutation.addedNodes) {
+            if (node instanceof HTMLImageElement && node.id.startsWith('cursorImg-')) {
+              syncCursorHeight(node);
+              shouldSyncAll = true;
+            }
+          }
+        } else if (
+          mutation.type === 'attributes' &&
+          mutation.target instanceof HTMLImageElement &&
+          mutation.target.id.startsWith('cursorImg-') &&
+          mutation.attributeName === 'height'
+        ) {
+          syncCursorHeight(mutation.target);
+        }
+      }
+      if (shouldSyncAll) {
+        container.querySelectorAll<HTMLImageElement>('img[id^="cursorImg-"]').forEach(syncCursorHeight);
+      }
+    });
+
+    observer.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ['height'] });
+    container.querySelectorAll<HTMLImageElement>('img[id^="cursorImg-"]').forEach(syncCursorHeight);
+
+    return () => observer.disconnect();
+  }, [musicXml]);
+
   // 自动滚动：练习时保持当前音符居中
   const scrollToCursor = useCallback(() => {
     if (!containerRef.current || !isPlaying) return;
     const container = containerRef.current;
-    const svg = container.querySelector('svg');
-    if (!svg) return;
 
-    // 查找 OSMD 光标元素
-    const cursorEl = svg.querySelector('.cursor-img, [data-cursor]');
+    // OSMD 原生光标是容器内的 img 元素（id 为 cursorImg-0）
+    const cursorEl = container.querySelector<HTMLImageElement>('#cursorImg-0, img[id^="cursorImg-"]');
     if (cursorEl) {
       const cursorRect = cursorEl.getBoundingClientRect();
       const containerRect = container.getBoundingClientRect();

@@ -11,6 +11,8 @@
  * B - 紫 #9B59B6
  */
 
+import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+
 export const SPECTRUM_COLORS: Record<string, string> = {
   C: "#E74C3C", // 红
   D: "#E67E22", // 橙
@@ -38,49 +40,80 @@ export function getSpectrumColor(midi: number): string {
 }
 
 /**
- * 给 OSMD 渲染的乐谱应用浅雅七色谱
- * 遍历所有音符，按音高设置 noteheadColor
+ * 给 OSMD 实例应用浅雅七色谱
+ * 通过遍历 Sheet 中的音符并设置 NoteheadColor，然后重新渲染
  */
-export function applySpectrumColors(container: HTMLElement): void {
-  const svg = container.querySelector("svg");
-  if (!svg) return;
+export function applySpectrumColors(osmd: OpenSheetMusicDisplay): void {
+  if (!osmd.Sheet) return;
 
-  // 查找所有音符元素（OSMD 渲染的 g.note 或带有 data-midi 的元素）
-  const noteGroups = svg.querySelectorAll("g.note");
-  noteGroups.forEach((group) => {
-    // 尝试从 data 属性或 class 获取 MIDI 信息
-    const dataMidi = group.getAttribute("data-midi");
-    if (dataMidi) {
-      const midi = parseInt(dataMidi, 10);
-      const color = getSpectrumColor(midi);
-      // 给符头着色
-      const noteheads = group.querySelectorAll(".vf-notehead");
-      noteheads.forEach((nh) => {
-        (nh as SVGElement).setAttribute("fill", color);
-      });
-      // 给符干着色
-      const stems = group.querySelectorAll(".vf-stem");
-      stems.forEach((s) => {
-        (s as SVGElement).setAttribute("stroke", color);
-      });
+  const measures = osmd.Sheet.SourceMeasures;
+  if (!measures) return;
+
+  for (const measure of measures) {
+    const containers = measure.VerticalSourceStaffEntryContainers;
+    if (!containers) continue;
+    for (const container of containers) {
+      const entries = container.StaffEntries;
+      if (!entries) continue;
+      for (const entry of entries) {
+        if (!entry) continue;
+        const voiceEntries = entry.VoiceEntries;
+        if (!voiceEntries) continue;
+        for (const voiceEntry of voiceEntries) {
+          if (!voiceEntry) continue;
+          const notes = voiceEntry.Notes;
+          if (!notes) continue;
+          for (const note of notes) {
+            if (note.isRest()) continue;
+            const pitch = note.Pitch;
+            if (!pitch) continue;
+            try {
+              const midi = (pitch.Octave + 1) * 12 + pitch.FundamentalNote;
+              note.NoteheadColor = getSpectrumColor(midi);
+            } catch {
+              // 某些音符可能无法设置颜色，忽略
+            }
+          }
+        }
+      }
     }
-  });
+  }
+
+  // 注意：调用方需要在设置完颜色后手动调用 osmd.render()
 }
 
 /**
- * 清除七色谱着色
+ * 清除七色谱着色（基于 OSMD 实例）
  */
-export function clearSpectrumColors(container: HTMLElement): void {
-  const svg = container.querySelector("svg");
-  if (!svg) return;
+export function clearSpectrumColors(osmd: OpenSheetMusicDisplay): void {
+  if (!osmd.Sheet) return;
 
-  const noteheads = svg.querySelectorAll(".vf-notehead");
-  noteheads.forEach((nh) => {
-    nh.removeAttribute("fill");
-  });
+  const measures = osmd.Sheet.SourceMeasures;
+  if (!measures) return;
 
-  const stems = svg.querySelectorAll(".vf-stem");
-  stems.forEach((s) => {
-    s.removeAttribute("stroke");
-  });
+  for (const measure of measures) {
+    const containers = measure.VerticalSourceStaffEntryContainers;
+    if (!containers) continue;
+    for (const container of containers) {
+      const entries = container.StaffEntries;
+      if (!entries) continue;
+      for (const entry of entries) {
+        if (!entry) continue;
+        const voiceEntries = entry.VoiceEntries;
+        if (!voiceEntries) continue;
+        for (const voiceEntry of voiceEntries) {
+          if (!voiceEntry) continue;
+          const notes = voiceEntry.Notes;
+          if (!notes) continue;
+          for (const note of notes) {
+            if (note.NoteheadColor) {
+              note.NoteheadColor = "";
+            }
+          }
+        }
+      }
+    }
+  }
+
+  osmd.render();
 }

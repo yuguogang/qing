@@ -104,27 +104,17 @@ body {
   @apply font-sans;
 }
 
-/* ===== OSMD 光标样式增强 ===== */
-#cursorImg-0 {
-  height: auto !important;
-  filter: drop-shadow(0 0 6px rgba(210, 87, 1, 0.6))
-          drop-shadow(0 0 12px rgba(210, 87, 1, 0.3));
-  transition: filter 0.2s ease;
-}
-
-.osmd-container.playing #cursorImg-0 {
-  animation: cursor-glow 1.5s ease-in-out infinite alternate;
-}
-
-@keyframes cursor-glow {
-  from {
-    filter: drop-shadow(0 0 4px rgba(210, 87, 1, 0.5))
-            drop-shadow(0 0 8px rgba(210, 87, 1, 0.2));
-  }
-  to {
-    filter: drop-shadow(0 0 8px rgba(210, 87, 1, 0.8))
-            drop-shadow(0 0 16px rgba(210, 87, 1, 0.4));
-  }
+/* ===== OSMD 原生光标样式修复 ===== */
+/* OSMD 光标是一张 30x1 像素的 PNG，OSMD 会根据当前谱表/系统高度设置 img 的
+   height 属性来纵向拉伸它，从而形成半透明、带边缘模糊的光标效果。
+   Tailwind v4 的 img { height: auto } 会覆盖该属性，把它压回 1px。
+   这里不直接写死 height，而是由 ScoreViewer 用 MutationObserver 把 img 的
+   height 属性同步为 style.height，避免 Tailwind 的覆盖。
+   轻微阴影仅用于在复杂背景上提升可见性。 */
+#cursorImg-0,
+img[id^="cursorImg-"] {
+  min-width: 2px;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.25));
 }
 
 /* ===== 折叠过渡动画 ===== */

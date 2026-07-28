@@ -377,9 +377,19 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const notes = parseMusicXMLNotes(musicXml);
-    setParsedNotes(notes);
-  }, [selectedScore]);
+    if (!musicXml) return;
+    // MXL URL 无法直接作为 XML 文本解析，先返回空序列（后续可从 OSMD Sheet 提取）
+    if (musicXml.startsWith('/scores/') && musicXml.toLowerCase().endsWith('.mxl')) {
+      setParsedNotes([]);
+      return;
+    }
+    try {
+      const notes = parseMusicXMLNotes(musicXml);
+      setParsedNotes(notes);
+    } catch {
+      setParsedNotes([]);
+    }
+  }, [musicXml]);
 
   const [audioContextState, setAudioContextState] = useState<AudioContext | null>(null);
 
@@ -392,6 +402,7 @@ export default function Home() {
     pause,
     handleKeyPress,
     reset,
+    getStartTime,
   } = usePractice(practiceMode, tempo, audioContextState);
 
   const handleNotePlay = useCallback((noteNumber: number) => {
@@ -414,22 +425,29 @@ export default function Home() {
     setOSMD(osmd);
   }, [setOSMD]);
 
+  // 伴奏基准 BPM，需与 musicxml-parser.ts 中解析音符时使用的 DEFAULT_BPM 保持一致
+  const ACCOMPANIMENT_BPM_BASE = 80;
+
   // 伴奏
   const accompanimentTimeoutsRef = useRef<number[]>([]);
 
-  const playAccompaniment = useCallback(() => {
+  const playAccompaniment = useCallback((startTimestamp?: number) => {
     if (!audioEngineRef.current || parsedNotes.length === 0) return;
     const engine = audioEngineRef.current;
-    const bpm = tempo;
+    const timeScale = ACCOMPANIMENT_BPM_BASE / tempo;
     const vol = volume / 100;
-    const secondsPerBeat = 60 / bpm;
+    const base = startTimestamp ?? performance.now();
     accompanimentTimeoutsRef.current.forEach(id => clearTimeout(id));
     accompanimentTimeoutsRef.current = [];
+    const now = performance.now();
     parsedNotes.forEach((note) => {
-      const delay = note.startTime * secondsPerBeat * 1000;
+      const targetTime = base + note.startTime * timeScale * 1000;
+      const delay = targetTime - now;
+      // 已经错过超过 200ms 的音符不再补播
+      if (delay < -200) return;
       const timeout = window.setTimeout(() => {
-        engine.playNote(note.midi, note.duration * secondsPerBeat, vol);
-      }, delay);
+        engine.playNote(note.midi, note.duration * timeScale, vol);
+      }, Math.max(0, delay));
       accompanimentTimeoutsRef.current.push(timeout);
     });
   }, [parsedNotes, tempo, volume]);
@@ -446,10 +464,14 @@ export default function Home() {
       stopAccompaniment();
       pause();
     } else {
-      if (practiceMode === "follow") playAccompaniment();
       start();
+      if (practiceMode === "follow") {
+        // 使用 controller 内部记录的 startTime 作为统一时间基准，
+        // 保证光标、伴奏、虚拟键盘高亮三者同源
+        playAccompaniment(getStartTime());
+      }
     }
-  }, [practiceState.isPlaying, practiceMode, playAccompaniment, start, pause, stopAccompaniment]);
+  }, [practiceState.isPlaying, practiceMode, playAccompaniment, start, pause, stopAccompaniment, getStartTime]);
 
   // 重新开始
   const handleRestart = useCallback(() => {
@@ -457,10 +479,12 @@ export default function Home() {
     stop();
     reset();
     setTimeout(() => {
-      if (practiceMode === "follow") playAccompaniment();
       start();
+      if (practiceMode === "follow") {
+        playAccompaniment(getStartTime());
+      }
     }, 100);
-  }, [stopAccompaniment, stop, reset, practiceMode, playAccompaniment, start]);
+  }, [stopAccompaniment, stop, reset, practiceMode, playAccompaniment, start, getStartTime]);
 
   // 模式切换
   const handleModeChange = useCallback((mode: PracticeMode) => {
@@ -492,10 +516,6 @@ export default function Home() {
     return () => window.removeEventListener("keydown", handler);
   }, [handlePlayPause, handleRestart]);
 
-  const currentNote = practiceState.currentCursorStep < parsedNotes.length
-    ? parsedNotes[practiceState.currentCursorStep]
-    : null;
-
   const anchorMode = displayMode === "anchor";
   const spectrumMode = displayMode === "spectrum";
 
@@ -510,11 +530,17 @@ export default function Home() {
         onScoreChange={async (s) => {
           setSelectedScore(s);
           if (s.file) {
-            try {
-              const resp = await fetch(`/scores/${s.file}`);
-              const xml = await resp.text();
-              setMusicXml(xml);
-            } catch { /* ignore */ }
+            const isMxl = s.file.toLowerCase().endsWith('.mxl');
+            if (isMxl) {
+              // MXL 是压缩格式，不能作为文本获取；把 URL 交给 OSMD 自行加载
+              setMusicXml(`/scores/${s.file}`);
+            } else {
+              try {
+                const resp = await fetch(`/scores/${s.file}`);
+                const xml = await resp.text();
+                setMusicXml(xml);
+              } catch { /* ignore */ }
+            }
           } else {
             setMusicXml(beyerNo1Xml);
           }
@@ -568,7 +594,7 @@ export default function Home() {
         collapsed={keyboardCollapsed}
         onToggle={() => setKeyboardCollapsed(!keyboardCollapsed)}
         onNotePlay={handleNotePlay}
-        activeNotes={new Set(currentNote ? [currentNote.midi] : [])}
+        activeNotes={new Set(practiceState.cursorNotes)}
       />
 
       {/* 底部浮动控制：播放/暂停 + MIDI */}
@@ -595,6 +621,7 @@ export default function Home() {
           onClick={handlePlayPause}
           className="w-12 h-12 bg-primary text-primary-foreground rounded-full shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors"
           title={practiceState.isPlaying ? "暂停" : "播放"}
+          data-testid="play-pause-button"
         >
           {practiceState.isPlaying ? (
             <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">

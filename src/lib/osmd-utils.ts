@@ -5,7 +5,7 @@
  * 核心功能：加载 MusicXML → 渲染五线谱 → 三色锚线着色 → 光标移动
  */
 
-import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
+import { OpenSheetMusicDisplay, Note } from 'opensheetmusicdisplay';
 
 // 三色锚线配色方案
 export const ANCHOR_COLORS = {
@@ -59,8 +59,8 @@ export function createOsmdInstance(
     cursorsOptions: [{
       follow: true,
       type: 0,
-      color: '#2563EB',
-      alpha: 0.85,
+      color: '#22C55E',
+      alpha: 0.9,
     }],
   });
 
@@ -82,14 +82,32 @@ export async function loadAndRender(
 }
 
 /**
- * 应用三色锚线着色（基于 OSMD GraphicalLine API）
+ * 解析 SVG path 的 d 属性坐标
+ * 支持 "M50 189.5L358 189.5" 或 "M50 189.5 L358 189.5"
+ */
+function parseLineCoords(d: string): { x1: number; y1: number; x2: number; y2: number } | null {
+  const match = d.match(/M\s*([\d.]+)\s+([\d.]+)\s*L\s*([\d.]+)\s+([\d.]+)/);
+  if (match) {
+    return {
+      x1: parseFloat(match[1]),
+      y1: parseFloat(match[2]),
+      x2: parseFloat(match[3]),
+      y2: parseFloat(match[4]),
+    };
+  }
+  return null;
+}
+
+/**
+ * 应用三色锚线着色（基于 .vf-measure 精确扫描）
  *
- * 通过 OSMD 内部 API 获取五线谱线的精确坐标，然后插入彩色 SVG 线条：
- * - 第三线（中央C锚点）：暖红色实线
- * - 上加一线：蓝色虚线
- * - 下加一线：绿色虚线
+ * 参考 /Users/ygg/vs/ai/osmd/RawJavascript-usage-example/index.html 中的锚线实现：
+ * - 第三线（正中间）：红色实线
+ * - 上加一线（第五线上方一个 spacing）：蓝色实线
+ * - 下加一线（第一线下方一个 spacing）：绿色实线
  *
- * 优势：不再依赖"宽度排序"启发式方法，坐标完全精确。
+ * 通过 OSMD 渲染后生成的 .vf-measure 内部 path[stroke-width="1"] 定位五线谱线，
+ * 解析 d 属性获得精确坐标，不再依赖 bbox 启发式扫描。
  */
 export function applyAnchorColors(
   container: HTMLElement,
@@ -107,109 +125,88 @@ export function applyAnchorColors(
     return null;
   }
 
-  // 通过 SVG 扫描识别五线谱线位置
+  // 清除旧锚线
+  svg.querySelectorAll('[data-anchor-line]').forEach((el) => el.remove());
 
-  const allElements = svg.querySelectorAll('*');
-  const horizontalLines: Array<{ el: SVGGraphicsElement; bbox: DOMRect; tag: string }> = [];
-
-  allElements.forEach((elem) => {
-    const el = elem as SVGGraphicsElement;
-    const tag = el.tagName.toLowerCase();
-    if (tag !== 'line' && tag !== 'path' && tag !== 'rect' && tag !== 'polygon') return;
-
-    let bbox: DOMRect | null = null;
-    try { bbox = el.getBBox(); } catch { return; }
-    if (!bbox) return;
-
-    if (bbox.height < 15 && bbox.width > 100) {
-      horizontalLines.push({ el, bbox, tag });
-    }
-  });
-
-  // 按宽度降序排序
-  horizontalLines.sort((a, b) => b.bbox.width - a.bbox.width);
-
-  let staffLines: Array<{ el: SVGGraphicsElement; bbox: DOMRect }> = [];
-
-  // 寻找等间距的 5 条线
-  for (let i = 0; i < horizontalLines.length - 4; i++) {
-    const lines = horizontalLines.slice(i, i + 5);
-    const spacings = [
-      lines[1].bbox.y - lines[0].bbox.y,
-      lines[2].bbox.y - lines[1].bbox.y,
-      lines[3].bbox.y - lines[2].bbox.y,
-      lines[4].bbox.y - lines[3].bbox.y,
-    ];
-
-    const avgSpacing = spacings.reduce((a, b) => a + b, 0) / 4;
-    const isUniform = spacings.every(s => Math.abs(s - avgSpacing) < avgSpacing * 0.7);
-
-    if (isUniform && avgSpacing > 2 && avgSpacing < 200) {
-      staffLines.push(...lines);
-      break;
-    }
+  const measures = svg.querySelectorAll('.vf-measure');
+  if (!measures.length) {
+    console.warn('[Anchor] No .vf-measure elements found');
+    return null;
   }
 
-  if (staffLines.length === 0 && horizontalLines.length >= 5) {
-    staffLines = horizontalLines.slice(0, 5);
-  }
-
-  staffLines.sort((a, b) => a.bbox.y - b.bbox.y);
-
+  // 颜色顺序：下加一线（绿）、第三线（红）、上加一线（蓝）
+  const ANCHOR_LINE_COLORS = [
+    ANCHOR_COLORS.lowerLedger,
+    ANCHOR_COLORS.middleLine,
+    ANCHOR_COLORS.upperLedger,
+  ];
+  const svgNS = 'http://www.w3.org/2000/svg';
+  let staffLinesFound = 0;
   let anchorLinesApplied = 0;
 
-  if (staffLines.length >= 5) {
-    const thirdLineY = staffLines[2].bbox.y;
-    const spacing = staffLines[1].bbox.y - staffLines[0].bbox.y;
-    const topLineY = staffLines[0].bbox.y;
-    const bottomLineY = staffLines[4].bbox.y;
-    const upperLedgerY = topLineY - spacing;
-    const lowerLedgerY = bottomLineY + spacing;
-    const svgNS = 'http://www.w3.org/2000/svg';
-    const svgWidth = svg.viewBox?.baseVal?.width || svg.clientWidth || 1000;
+  measures.forEach((measure, idx) => {
+    // 直接子 path[stroke-width="1"]，过滤出水平谱线
+    const allPaths = measure.querySelectorAll(':scope > path[stroke-width="1"]');
+    const staffLines = Array.from(allPaths).filter((p) => {
+      const d = p.getAttribute('d');
+      return d && d.startsWith('M') && d.includes('L');
+    }).slice(0, 5);
 
-    const redLine = document.createElementNS(svgNS, 'line');
-    redLine.setAttribute('x1', '0');
-    redLine.setAttribute('y1', String(thirdLineY));
-    redLine.setAttribute('x2', String(svgWidth));
-    redLine.setAttribute('y2', String(thirdLineY));
-    redLine.setAttribute('stroke', '#FF0000');
-    redLine.setAttribute('stroke-width', '3');
-    redLine.setAttribute('stroke-opacity', '0.7');
-    redLine.dataset.anchorLine = 'middle';
-    svg.insertBefore(redLine, svg.firstChild);
-    anchorLinesApplied++;
+    if (staffLines.length !== 5) {
+      console.warn(`[Anchor] Measure ${idx + 1} found ${staffLines.length} staff lines, skipping`);
+      return;
+    }
 
-    const blueLine = document.createElementNS(svgNS, 'line');
-    blueLine.setAttribute('x1', '0');
-    blueLine.setAttribute('y1', String(upperLedgerY));
-    blueLine.setAttribute('x2', String(svgWidth));
-    blueLine.setAttribute('y2', String(upperLedgerY));
-    blueLine.setAttribute('stroke', ANCHOR_COLORS.upperLedger);
-    blueLine.setAttribute('stroke-width', '3');
-    blueLine.setAttribute('stroke-opacity', '0.9');
-    blueLine.setAttribute('stroke-dasharray', '8,4');
-    blueLine.dataset.anchorLine = 'upperLedger';
-    svg.appendChild(blueLine);
-    anchorLinesApplied++;
+    staffLinesFound += 5;
 
-    const greenLine = document.createElementNS(svgNS, 'line');
-    greenLine.setAttribute('x1', '0');
-    greenLine.setAttribute('y1', String(lowerLedgerY));
-    greenLine.setAttribute('x2', String(svgWidth));
-    greenLine.setAttribute('y2', String(lowerLedgerY));
-    greenLine.setAttribute('stroke', ANCHOR_COLORS.lowerLedger);
-    greenLine.setAttribute('stroke-width', '3');
-    greenLine.setAttribute('stroke-opacity', '0.9');
-    greenLine.setAttribute('stroke-dasharray', '8,4');
-    greenLine.dataset.anchorLine = 'lowerLedger';
-    svg.appendChild(greenLine);
-    anchorLinesApplied++;
-  }
+    // 解析五条线的 Y 坐标
+    const yPositions = staffLines.map((line) => {
+      const d = line.getAttribute('d');
+      if (!d) return null;
+      const coords = parseLineCoords(d);
+      return coords ? coords.y1 : null;
+    }).filter((y): y is number => y !== null);
+
+    if (yPositions.length !== 5) return;
+
+    yPositions.sort((a, b) => a - b);
+    const spacing = yPositions[1] - yPositions[0];
+
+    // 获取左右边界
+    const firstLine = staffLines[0];
+    const dFirst = firstLine.getAttribute('d');
+    if (!dFirst) return;
+    const coords = parseLineCoords(dFirst);
+    if (!coords) return;
+    const { x1, x2 } = coords;
+
+    // 三条锚线 Y 坐标
+    const topLineY = yPositions[0];
+    const bottomLineY = yPositions[4];
+    const thirdLineY = yPositions[2];
+    const belowY = bottomLineY + spacing;
+    const aboveY = topLineY - spacing;
+
+    const anchorYPositions = [belowY, thirdLineY, aboveY];
+
+    anchorYPositions.forEach((y, i) => {
+      const lineEl = document.createElementNS(svgNS, 'line');
+      lineEl.setAttribute('x1', String(x1));
+      lineEl.setAttribute('y1', String(y));
+      lineEl.setAttribute('x2', String(x2));
+      lineEl.setAttribute('y2', String(y));
+      lineEl.setAttribute('stroke', ANCHOR_LINE_COLORS[i % ANCHOR_LINE_COLORS.length]);
+      lineEl.setAttribute('stroke-width', '3');
+      lineEl.setAttribute('opacity', '0.6');
+      lineEl.setAttribute('data-anchor-line', 'true');
+      measure.appendChild(lineEl);
+      anchorLinesApplied++;
+    });
+  });
 
   return {
-    totalElements: allElements.length,
-    staffLinesFound: staffLines.length,
+    totalElements: svg.querySelectorAll('*').length,
+    staffLinesFound,
     anchorLinesApplied,
   };
 }
@@ -263,8 +260,8 @@ export function getCursorNoteMidis(osmd: OpenSheetMusicDisplay): number[] {
   try {
     const notes = osmd.cursor.NotesUnderCursor();
     return notes
-      .filter(note => !note.isRest())
-      .map(note => {
+      .filter((note: Note) => !note.isRest())
+      .map((note: Note) => {
         const pitch = note.Pitch;
         if (!pitch) return -1;
         // OSMD Pitch 转 MIDI 编号
@@ -276,7 +273,7 @@ export function getCursorNoteMidis(osmd: OpenSheetMusicDisplay): number[] {
           return -1;
         }
       })
-      .filter((midi): midi is number => midi >= 0);
+      .filter((midi: number): midi is number => midi >= 0);
   } catch {
     return [];
   }

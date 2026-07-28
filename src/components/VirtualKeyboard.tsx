@@ -106,6 +106,7 @@ export function VirtualKeyboard({ onNotePlay, activeNotes }: VirtualKeyboardProp
     });
   }, []);
 
+  console.log('[VirtualKeyboard] activeNotes', Array.from(activeNotes));
   const isActive = (midi: number) => activeNotes.has(midi) || pressedKeys.has(midi);
 
   return (
@@ -129,6 +130,7 @@ export function VirtualKeyboard({ onNotePlay, activeNotes }: VirtualKeyboardProp
                 left: `${PIANO_KEYS.findIndex((k) => k.midi === key.midi) * (100 / PIANO_KEYS.length) + (100 / PIANO_KEYS.length) * 0.65}%`,
               }}
               title={`${key.label} (${key.keyLabel})`}
+              data-testid={`piano-key-${key.label}`}
             >
               <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[8px] text-gray-500 select-none">
                 {key.keyLabel}
@@ -149,6 +151,7 @@ export function VirtualKeyboard({ onNotePlay, activeNotes }: VirtualKeyboardProp
             }`}
             style={{ minWidth: 0 }}
             title={`${key.label} (${key.keyLabel})`}
+            data-testid={`piano-key-${key.label}`}
           >
             <span className="text-[9px] text-gray-400 select-none">{key.keyLabel}</span>
           </div>

@@ -163,3 +163,9 @@ Desktop.ini
 # Misc
 .coze-logs
 .codegraph/
+
+# Reasonix agent tools
+.reasonix/
+
+# Test screenshots
+assets/test_*.png
