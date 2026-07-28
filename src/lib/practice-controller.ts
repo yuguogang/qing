@@ -181,7 +181,8 @@ export class PracticeController {
         }
       }
 
-      const timeSec = realMusicTime * (60 / DEFAULT_BPM);
+      // CurrentSourceTimestamp.RealValue 以 whole note 为单位，转换为 quarter note 再计算秒
+      const timeSec = realMusicTime * 4 * (60 / DEFAULT_BPM);
       schedule.push({ step, timeSec, notes: noteInfos });
       step++;
       prevMusicTime = musicTime;
@@ -336,12 +337,20 @@ export class PracticeController {
         this.currentCursorStep++;
       }
 
-      // 播放当前 step 的音符
+      // 播放当前 step 的音符（实时读取 cursor 当前位置的音符，避免预扫描缓存问题）
       if (this.mode !== 'browse') {
-        console.log('[tick] step', this.nextStepIndex, 'notes', stepInfo.notes.length, 'timeSec', stepInfo.timeSec.toFixed(3), 'scaledTime', scaledTime.toFixed(3));
-        for (const note of stepInfo.notes) {
-          const scaledDuration = note.duration * (60 / this.bpm);
-          this.audioEngine?.playNote(note.midi, scaledDuration, 0.8);
+        const currentNotes = this.osmd.cursor.NotesUnderCursor();
+        const noteInfos: { midi: number; duration: number }[] = [];
+        for (const note of currentNotes) {
+          if (note.Pitch) {
+            const midi = getMidiFromNote(note);
+            const duration = (note.Length?.RealValue ?? 0.5) * 4 * (60 / this.bpm);
+            noteInfos.push({ midi, duration });
+          }
+        }
+        console.log('[tick] step', this.nextStepIndex, 'notes', noteInfos.length, 'timeSec', stepInfo.timeSec.toFixed(3), 'scaledTime', scaledTime.toFixed(3), 'midis', noteInfos.map(n => n.midi));
+        for (const note of noteInfos) {
+          this.audioEngine?.playNote(note.midi, note.duration, 0.8);
         }
       }
 
