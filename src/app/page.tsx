@@ -152,7 +152,7 @@ function TopBar({
                     : "hover:bg-secondary"
                 }`}
               >
-                {{ follow: "跟弹", sight: "视奏" }[m]}
+                {{ follow: "跟弹", sightsinging: "视奏", browse: "浏览" }[m as string] || m}
               </button>
             ))}
           </div>
@@ -416,14 +416,12 @@ export default function Home() {
     setAudioContextState(audioContextRef.current);
   }, []);
 
-  useEffect(() => {
-    if (parsedNotes.length > 0) loadNotes(parsedNotes);
-  }, [parsedNotes, loadNotes]);
-
   const handleOsmdReady = useCallback((osmd: OpenSheetMusicDisplay) => {
     osmdRef.current = osmd;
     setOSMD(osmd);
-  }, [setOSMD]);
+    // 让 controller 用 OSMD cursor 预扫描曲谱
+    loadNotes();
+  }, [setOSMD, loadNotes]);
 
   // 伴奏基准 BPM，需与 musicxml-parser.ts 中解析音符时使用的 DEFAULT_BPM 保持一致
   const ACCOMPANIMENT_BPM_BASE = 80;

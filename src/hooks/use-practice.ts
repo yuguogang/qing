@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { PracticeController, type TimingGrade, type PracticeStats, type PracticeMode } from '@/lib/practice-controller';
-import type { PianoNote } from '@/lib/audio-engine';
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 
 export type { PracticeMode, TimingGrade, PracticeStats };
@@ -11,7 +10,6 @@ export type { PracticeMode, TimingGrade, PracticeStats };
 export interface PracticeHookState {
   isPlaying: boolean;
   isPaused: boolean;
-  currentTime: number;
   currentCursorStep: number;
   totalCursorSteps: number;
   stats: PracticeStats;
@@ -26,14 +24,12 @@ export function usePractice(
   audioContext: AudioContext | null = null
 ) {
   const controllerRef = useRef<PracticeController | null>(null);
-  const notesRef = useRef<PianoNote[]>([]);
   const osmdRef = useRef<OpenSheetMusicDisplay | null>(null);
   const rafRef = useRef<number | null>(null);
 
   const [state, setState] = useState<PracticeHookState>({
     isPlaying: false,
     isPaused: false,
-    currentTime: 0,
     currentCursorStep: 0,
     totalCursorSteps: 0,
     stats: {
@@ -61,10 +57,6 @@ export function usePractice(
     if (osmdRef.current) {
       controller.setOSMD(osmdRef.current);
     }
-    // 重新加载音符（如果已有）
-    if (notesRef.current.length > 0) {
-      controller.loadNotes(notesRef.current);
-    }
 
     controllerRef.current = controller;
 
@@ -81,17 +73,17 @@ export function usePractice(
     }
   }, []);
 
-  // 加载音符
-  const loadNotes = useCallback((notes: PianoNote[]) => {
-    notesRef.current = notes;
-    if (!controllerRef.current) return;
-    controllerRef.current.loadNotes(notes);
+  // 加载音符（从 OSMD cursor 预扫描）
+  const loadNotes = useCallback(() => {
+    const controller = controllerRef.current;
+    if (!controller) return;
+    controller.loadNotes();
     setState(prev => ({
       ...prev,
-      totalCursorSteps: controllerRef.current?.getTotalCursorSteps() || 0,
+      totalCursorSteps: controller.getTotalCursorSteps() || 0,
       stats: {
         ...prev.stats,
-        totalNotes: notes.length,
+        totalNotes: controller.getStats().totalNotes,
       },
     }));
   }, []);
@@ -104,7 +96,6 @@ export function usePractice(
 
       setState(prev => ({
         ...prev,
-        currentTime: controller.getCurrentTime(),
         currentCursorStep: controller.getCurrentCursorStep(),
         stats: controller.getStats(),
         isPlaying: controller.getIsPlaying(),
@@ -130,7 +121,7 @@ export function usePractice(
 
     // 设置回调
     controller.setCallbacks({
-      onNoteHit: (_midi, grade, delta) => {
+      onNoteHit: (_midi: number, grade: TimingGrade, delta: number) => {
         setState(prev => ({
           ...prev,
           lastGrade: grade,
@@ -138,33 +129,33 @@ export function usePractice(
           stats: controller.getStats(),
         }));
       },
-      onNoteMiss: (_midi) => {
+      onNoteMiss: (_midi: number) => {
         setState(prev => ({
           ...prev,
           lastGrade: 'miss',
           stats: controller.getStats(),
         }));
       },
-      onCursorStep: (_step) => {
+      onCursorStepChange: (_step: number) => {
         setState(prev => ({
           ...prev,
           currentCursorStep: controller.getCurrentCursorStep(),
         }));
       },
-      onCursorNotes: (midiNotes) => {
-        console.log('[usePractice onCursorNotes]', midiNotes);
+      onActiveNotesChange: (activeNotes: Set<number>) => {
         setState(prev => ({
           ...prev,
-          cursorNotes: midiNotes,
+          cursorNotes: Array.from(activeNotes),
         }));
       },
-      onComplete: (stats) => {
+      onFinish: () => {
         stopPolling();
+        const finalStats = controllerRef.current?.getStats();
         setState(prev => ({
           ...prev,
           isPlaying: false,
           isPaused: false,
-          stats,
+          stats: finalStats ?? prev.stats,
         }));
       },
     });
@@ -225,7 +216,6 @@ export function usePractice(
       ...prev,
       isPlaying: false,
       isPaused: false,
-      currentTime: 0,
       currentCursorStep: 0,
       stats: {
         totalNotes: prev.stats.totalNotes,
@@ -250,8 +240,8 @@ export function usePractice(
     start,
     stop,
     pause,
-    handleKeyPress,
     reset,
+    handleKeyPress,
     getStartTime,
   };
 }
