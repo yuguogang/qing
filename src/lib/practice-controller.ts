@@ -57,9 +57,10 @@ export interface PracticeCallbacks {
 }
 
 // 从 OSMD Note 提取 MIDI
-function getMidiFromNote(note: { Pitch?: { Octave: number; FundamentalNote: number } | null }): number {
+function getMidiFromNote(note: { Pitch?: { Octave: number; FundamentalNote: number; Accidental?: number } | null }): number {
   if (!note.Pitch) return -1;
-  return (note.Pitch.Octave + 1) * 12 + note.Pitch.FundamentalNote;
+  const accidental = note.Pitch.Accidental ?? 0;
+  return (note.Pitch.Octave + 1) * 12 + note.Pitch.FundamentalNote + accidental;
 }
 
 export class PracticeController {
@@ -161,7 +162,8 @@ export class PracticeController {
       for (const note of notes) {
         if (note.Pitch) {
           const midi = getMidiFromNote(note);
-          const duration = note.Length?.RealValue ?? 0.5;
+          // note.Length.RealValue 以 whole note 为单位，转换为 quarter note 单位
+          const duration = (note.Length?.RealValue ?? 0.5) * 4;
           noteInfos.push({ midi, duration });
         }
       }
@@ -201,6 +203,7 @@ export class PracticeController {
 
     this.cursorSchedule = schedule;
     this.stats.totalNotes = schedule.reduce((sum, s) => sum + s.notes.length, 0);
+    console.log('[buildCursorSchedule] built', schedule.length, 'steps. first 3:', schedule.slice(0, 3), 'last 3:', schedule.slice(-3));
 
     return schedule;
   }
@@ -254,6 +257,9 @@ export class PracticeController {
     }
 
     // 跟弹/视奏模式：逐 tick 推进 cursor
+    if (this.cursorSchedule.length === 0) {
+      this.buildCursorSchedule();
+    }
     this.tickInterval = window.setInterval(() => this.tick(), 16);
   }
 
@@ -317,9 +323,11 @@ export class PracticeController {
     const scaledTime = elapsedSec * (this.bpm / DEFAULT_BPM);
 
     // 推进 cursor 到当前时间对应的 step
+    let loopCount = 0;
     while (this.nextStepIndex < this.cursorSchedule.length) {
       const stepInfo = this.cursorSchedule[this.nextStepIndex];
       if (scaledTime < stepInfo.timeSec) break;
+      loopCount++;
 
       // 步进 cursor（OSMD 内部自动处理 repeat 回跳）
       if (!this.osmd?.cursor) break;
@@ -330,6 +338,7 @@ export class PracticeController {
 
       // 播放当前 step 的音符
       if (this.mode !== 'browse') {
+        console.log('[tick] step', this.nextStepIndex, 'notes', stepInfo.notes.length, 'timeSec', stepInfo.timeSec.toFixed(3), 'scaledTime', scaledTime.toFixed(3));
         for (const note of stepInfo.notes) {
           const scaledDuration = note.duration * (60 / this.bpm);
           this.audioEngine?.playNote(note.midi, scaledDuration, 0.8);
@@ -355,6 +364,7 @@ export class PracticeController {
       this.osmd?.cursor?.iterator?.EndReached ||
       this.nextStepIndex >= this.cursorSchedule.length
     ) {
+      console.log('[tick] stop reached. EndReached:', this.osmd?.cursor?.iterator?.EndReached, 'nextStepIndex:', this.nextStepIndex, 'scheduleLength:', this.cursorSchedule.length);
       this.stop();
       return;
     }
