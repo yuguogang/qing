@@ -5,6 +5,7 @@ import {
   createOsmdInstance,
   loadAndRender,
   applyAnchorColors,
+  setZoom,
   type OsmdConfig,
   DEFAULT_CONFIG,
 } from '@/lib/osmd-utils';
@@ -157,15 +158,11 @@ export default function ScoreViewer({
     }
   }, [anchorMode, spectrumMode, loading, config]);
 
-  // 缩放
+  // 缩放：使用 OSMD 原生 zoom 重新渲染，避免 CSS transform 导致光标变形
   useEffect(() => {
-    if (!containerRef.current) return;
-    const svg = containerRef.current.querySelector('svg');
-    if (svg) {
-      svg.style.transform = `scale(${zoom})`;
-      svg.style.transformOrigin = 'top left';
-    }
-  }, [zoom]);
+    if (!osmdRef.current || loading) return;
+    setZoom(osmdRef.current, zoom);
+  }, [zoom, loading]);
 
   // 监听 OSMD 光标元素：把 height 属性同步到 style.height，防止 Tailwind 覆盖。
   // OSMD 光标是一张 30x1 像素的 PNG，它通过设置 img 的 height 属性来纵向拉伸，
