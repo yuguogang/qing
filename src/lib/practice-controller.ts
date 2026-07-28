@@ -114,7 +114,8 @@ export class PracticeController {
     const sorted = [...notes].sort((a, b) => a.startTime - b.startTime);
     
     // 为每个音符分配 cursor 步骤
-    let step = 0;
+    // step 从 -1 开始，第一个音符的 cursorStep = 0，与 OSMD cursor.reset() 后位置对齐
+    let step = -1;
     let lastStartTime = -1;
     
     this.noteEvents = sorted.map(note => {
