@@ -45,6 +45,8 @@ export default function ScoreViewer({
   const hasAppliedAnchorRef = useRef(false);
   const hasAppliedSpectrumRef = useRef(false);
   const loadSuccessRef = useRef(false);
+  const prevZoomRef = useRef(zoom);
+  const prevModeRef = useRef({ anchorMode, spectrumMode });
 
   // 判定动画
   useEffect(() => {
@@ -135,9 +137,11 @@ export default function ScoreViewer({
 
   // 显示模式切换（锚线 / 七色谱）统一处理
   // 先完成 OSMD render，再在下一帧绘制锚线，避免 render 覆盖锚线
+  // 仅在 mode 真正变化时触发，避免 loading 变化导致重复 render
   useEffect(() => {
-    console.log('[ScoreViewer mode effect]', { spectrumMode, anchorMode, loading, loadSuccess: loadSuccessRef.current, hasOsmd: !!osmdRef.current });
     if (!osmdRef.current || loading || !loadSuccessRef.current) return;
+    if (prevModeRef.current.anchorMode === anchorMode && prevModeRef.current.spectrumMode === spectrumMode) return;
+    prevModeRef.current = { anchorMode, spectrumMode };
 
     if (spectrumMode) {
       applySpectrumColors(osmdRef.current);
@@ -159,8 +163,11 @@ export default function ScoreViewer({
   }, [anchorMode, spectrumMode, loading, config]);
 
   // 缩放：使用 OSMD 原生 zoom 重新渲染，避免 CSS transform 导致光标变形
+  // 仅在 zoom 值真正变化时触发，避免 loading 变化导致重复 render
   useEffect(() => {
     if (!osmdRef.current || loading) return;
+    if (prevZoomRef.current === zoom) return;
+    prevZoomRef.current = zoom;
     setZoom(osmdRef.current, zoom);
   }, [zoom, loading]);
 
