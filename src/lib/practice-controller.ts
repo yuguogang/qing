@@ -7,6 +7,9 @@
 import { type PianoNote } from './audio-engine';
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 
+// MusicXML 解析时使用的默认 BPM，音符 startTime 基于此值计算
+const DEFAULT_BPM = 80;
+
 // 节拍判定等级
 export type TimingGrade = 'perfect' | 'good' | 'miss';
 
@@ -290,7 +293,8 @@ export class PracticeController {
    * 更新光标位置 — 使用 OSMD cursor.next() 步进
    */
   private updateCursorPosition() {
-    const currentTimeSec = this.currentTime / 1000;
+    // 实际流逝时间需要根据 BPM 缩放到与 noteEvents.startTime 相同的基准（DEFAULT_BPM=80）
+    const currentTimeSec = (this.currentTime / 1000) * (this.bpm / DEFAULT_BPM);
 
     // 找到当前时间对应的 cursor 步骤
     let targetStep = 0;
