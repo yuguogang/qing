@@ -72,7 +72,7 @@ export class PracticeController {
   private startTime = 0;
   private currentTime = 0;
   private currentCursorStep = 0;
-  private lastCursorStep = -1;
+  private lastCursorStep = 0; // reset() 后光标已在位置0（第一个音符之前），对应 step 0
   private animationFrameId: number | null = null;
   private accompanimentTimeouts: number[] = [];
 
@@ -170,7 +170,7 @@ export class PracticeController {
     this.startTime = performance.now();
     this.currentTime = 0;
     this.currentCursorStep = 0;
-    this.lastCursorStep = -1;
+    this.lastCursorStep = 0; // 与 cursor.reset() 后的初始位置对齐
     this.lastHighlightedMidis = [];
 
     // 重置统计
