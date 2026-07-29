@@ -43,6 +43,8 @@ export class PianoAudioEngine {
   playNote(midi: number, duration: number, velocity: number = 0.8): void {
     if (!this.audioContext || !this.masterGain) return;
 
+    console.log(`[audioEngine] playNote: midi=${midi}, duration=${duration.toFixed(3)}, velocity=${velocity}, ctxState=${this.audioContext.state}`);
+
     const ctx = this.audioContext;
     const now = ctx.currentTime;
     const frequency = midiToFrequency(midi);
