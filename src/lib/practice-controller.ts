@@ -364,14 +364,15 @@ export class PracticeController {
         
         for (const note of currentNotes) {
           if (note.Pitch) {
-            // OSMD 的 note.halfTone 比标准 MIDI 小 12，需要加 12 修正
             const midi = note.halfTone + 12;
             const duration = (note.Length?.RealValue ?? 0.5) * 4 * (60 / this.bpm);
             noteInfos.push({ midi, duration });
           }
         }
 
-        // 发布 note:start 事件并播放音频
+        // 定位日志：看每个 step 读取了几个音符
+        console.log(`[step ${this.nextStepIndex}] notes=${currentNotes.length} midis=${JSON.stringify(noteInfos.map(n => n.midi))}`);
+
         for (const note of noteInfos) {
           this.audioEngine?.playNote(note.midi, note.duration, 0.8);
           eventBus.emit('note:start', { 
