@@ -186,7 +186,6 @@ export class PracticeController {
 
     // 先读取当前位置（cursor.reset() + show() 后光标在第一个音符）
     let noteInfos = readCurrentNotes();
-    console.log('[buildCursorSchedule] after reset+show, first note midis:', noteInfos.map(n => n.midi));
     if (noteInfos.length > 0) {
       recordStep(noteInfos);
     }
@@ -211,7 +210,6 @@ export class PracticeController {
 
     this.cursorSchedule = schedule;
     this.stats.totalNotes = schedule.reduce((sum, s) => sum + s.notes.length, 0);
-    console.log('[buildCursorSchedule] built', schedule.length, 'steps');
 
     return schedule;
   }
@@ -250,26 +248,10 @@ export class PracticeController {
 
     // 确保音频上下文已恢复（浏览器要求用户交互后才能播放音频）
     await this.audioEngine?.resume();
-    console.log('[start] audio engine resumed, state:', this.audioEngine?.getAudioContext()?.state);
 
     // 重置光标
     this.osmd?.cursor?.reset();
     this.osmd?.cursor?.show();
-
-    // DEBUG: 检查 reset 后光标位置的音符
-    const debugNotes = this.osmd?.cursor?.NotesUnderCursor() ?? [];
-    const debugInfo = debugNotes.filter(n => n.Pitch).map(n => {
-      const p = n.Pitch!;
-      return {
-        octave: p.Octave,
-        fundamental: p.FundamentalNote,
-        accidental: p.AccidentalHalfTones,
-        halfTone: n.halfTone,
-        calculated: n.halfTone + 12,
-      };
-    });
-    console.log('[start] after reset+show, cursor debug:', JSON.stringify(debugInfo));
-    console.log('[start] schedule[0]:', this.cursorSchedule[0]?.notes.map(n => n.midi));
 
     // 发布 playback:start 事件
     eventBus.emit('playback:start', { bpm: this.bpm });
@@ -366,21 +348,8 @@ export class PracticeController {
       if (this.nextStepIndex > 0 && !this.osmd.cursor.iterator.EndReached) {
         this.osmd.cursor.next();
         this.currentCursorStep++;
-      } else if (this.nextStepIndex === 0) {
-        // DEBUG: step 0 时检查光标位置
-        const step0Notes = this.osmd.cursor.NotesUnderCursor();
-        const step0Info = step0Notes.filter(n => n.Pitch).map(n => {
-          const p = n.Pitch!;
-          return {
-            octave: p.Octave,
-            fundamental: p.FundamentalNote,
-            accidental: p.AccidentalHalfTones,
-            halfTone: n.halfTone,
-            calculated: n.halfTone + 12,
-          };
-        });
-        console.log('[tick] step 0 debug:', JSON.stringify(step0Info), 'expected:', stepInfo.notes.map(n => n.midi));
       }
+      // step 0: cursor.reset() 后已在第一个音符，不需要 next()
 
       // 发布 cursor:step 事件 - 所有组件同步响应
       eventBus.emit('cursor:step', { 

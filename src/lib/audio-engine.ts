@@ -42,11 +42,8 @@ export class PianoAudioEngine {
   // 恢复音频上下文（浏览器要求用户交互后才能播放音频）
   async resume(): Promise<void> {
     if (this.audioContext?.state === 'suspended') {
-      console.log('[audioEngine] resuming audio context...');
       await this.audioContext.resume();
-      console.log(`[audioEngine] audio context resumed, state=${this.audioContext.state}`);
     } else {
-      console.log(`[audioEngine] audio context already ${this.audioContext?.state}`);
     }
   }
 
@@ -56,11 +53,9 @@ export class PianoAudioEngine {
 
     // 确保音频上下文已恢复（浏览器要求用户交互后才能播放音频）
     if (this.audioContext.state === 'suspended') {
-      console.log('[audioEngine] playNote: resuming suspended context...');
       await this.audioContext.resume();
     }
 
-    console.log(`[audioEngine] playNote: midi=${midi}, duration=${duration.toFixed(3)}, velocity=${velocity}, ctxState=${this.audioContext.state}`);
 
     const ctx = this.audioContext;
     const now = ctx.currentTime;
