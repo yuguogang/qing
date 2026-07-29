@@ -156,6 +156,7 @@ export class PracticeController {
           // NoteEnum: C=0, D=2, E=4, F=5, G=7, A=9, B=11
           const pitch = note.Pitch;
           const midi = (pitch.Octave + 1) * 12 + pitch.FundamentalNote + pitch.AccidentalHalfTones;
+          console.log(`[readCurrentNotes] Octave=${pitch.Octave} Fundamental=${pitch.FundamentalNote} Accidental=${pitch.AccidentalHalfTones} halfTone=${note.halfTone} calculated=${midi}`);
           noteInfos.push({
             midi,
             duration: (note.Length?.RealValue ?? 0.5) * 4,
@@ -255,8 +256,18 @@ export class PracticeController {
 
     // DEBUG: 检查 reset 后光标位置的音符
     const debugNotes = this.osmd?.cursor?.NotesUnderCursor() ?? [];
-    const debugMidis = debugNotes.filter(n => n.Pitch).map(n => n.halfTone);
-    console.log('[start] after reset+show, cursor notes midis:', debugMidis, 'schedule[0]:', this.cursorSchedule[0]?.notes.map(n => n.midi));
+    const debugInfo = debugNotes.filter(n => n.Pitch).map(n => {
+      const p = n.Pitch!;
+      return {
+        octave: p.Octave,
+        fundamental: p.FundamentalNote,
+        accidental: p.AccidentalHalfTones,
+        halfTone: n.halfTone,
+        calculated: (p.Octave + 1) * 12 + p.FundamentalNote + p.AccidentalHalfTones,
+      };
+    });
+    console.log('[start] after reset+show, cursor debug:', JSON.stringify(debugInfo));
+    console.log('[start] schedule[0]:', this.cursorSchedule[0]?.notes.map(n => n.midi));
 
     // 发布 playback:start 事件
     eventBus.emit('playback:start', { bpm: this.bpm });
@@ -356,8 +367,17 @@ export class PracticeController {
       } else if (this.nextStepIndex === 0) {
         // DEBUG: step 0 时检查光标位置
         const step0Notes = this.osmd.cursor.NotesUnderCursor();
-        const step0Midis = step0Notes.filter(n => n.Pitch).map(n => n.halfTone);
-        console.log('[tick] step 0: cursor midis before playing:', step0Midis, 'expected:', stepInfo.notes.map(n => n.midi));
+        const step0Info = step0Notes.filter(n => n.Pitch).map(n => {
+          const p = n.Pitch!;
+          return {
+            octave: p.Octave,
+            fundamental: p.FundamentalNote,
+            accidental: p.AccidentalHalfTones,
+            halfTone: n.halfTone,
+            calculated: (p.Octave + 1) * 12 + p.FundamentalNote + p.AccidentalHalfTones,
+          };
+        });
+        console.log('[tick] step 0 debug:', JSON.stringify(step0Info), 'expected:', stepInfo.notes.map(n => n.midi));
       }
 
       // 发布 cursor:step 事件 - 所有组件同步响应
