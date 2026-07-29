@@ -506,7 +506,7 @@ export default function Home() {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       if (e.code === "Space") { e.preventDefault(); handlePlayPause(); }
-      if (e.code === "KeyR") { e.preventDefault(); handleRestart(); }
+      if (e.code === "KeyR" && e.shiftKey) { e.preventDefault(); handleRestart(); } // Shift+R 重新播放，避免与虚拟键盘 R=F4 冲突
       if (e.code === "ArrowLeft") setTempo((t) => Math.max(30, t - 5));
       if (e.code === "ArrowRight") setTempo((t) => Math.min(200, t + 5));
     };

@@ -86,7 +86,6 @@ export function VirtualKeyboard({ onNotePlay, activeNotes, noteVelocities }: Vir
       const midi = KEYBOARD_MAP[key];
       if (midi !== undefined) {
         e.preventDefault();
-        e.stopImmediatePropagation(); // 阻止事件传播到其他处理器（如全局快捷键）
         setPressedKeys((prev) => new Set(prev).add(midi));
         onNotePlay(midi);
       }
