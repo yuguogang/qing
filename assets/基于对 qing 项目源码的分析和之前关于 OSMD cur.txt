@@ -1,0 +1,555 @@
+基于对 qing 项目源码的分析和之前关于 OSMD cursor 机制的讨论，以下是详细的改造方案。
+
+一、项目现状分析
+1.1 技术栈
+qing 是一个基于 Next.js 16 + React 19 + TypeScript 的练琴应用：
+
+乐谱渲染：opensheetmusicdisplay@^2.1.0
+
+UI 组件：shadcn/ui + Tailwind CSS 4
+
+核心模块：practice-controller.ts、audio-engine.ts、osmd-utils.ts、ScoreViewer.tsx、VirtualKeyboard.tsx
+
+1.2 当前架构特点
+practice-controller.ts 采用 “预扫描 + 时间表驱动” 架构：
+
+text
+┌─────────────────────────────────────────────────────────────────┐
+│                   当前架构：预扫描 + 时间表驱动                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────┐     ┌─────────────┐     ┌─────────────────┐  │
+│  │  预扫描阶段  │ ──▶ │ cursorSchedule│ ──▶ │  tick 循环驱动  │  │
+│  │ (走一遍全曲) │     │ (时间表数组) │     │ (setInterval)  │  │
+│  └─────────────┘     └─────────────┘     └─────────────────┘  │
+│                                                    │           │
+│                                                    ▼           │
+│                                          ┌─────────────────┐  │
+│                                          │ cursor.next()   │  │
+│                                          │ (按时间表推进)  │  │
+│                                          └─────────────────┘  │
+│                                                    │           │
+│                          ┌─────────────────────────┼─────────┐│
+│                          ▼                         ▼         ▼│
+│                   ┌─────────────┐     ┌─────────────┐ ┌─────┐│
+│                   │ 音频引擎    │     │ 虚拟键盘    │ │统计  ││
+│                   │ (实时播放)  │     │ (高亮)      │ │面板  ││
+│                   └─────────────┘     └─────────────┘ └─────┘│
+└─────────────────────────────────────────────────────────────────┘
+核心流程：
+
+预扫描：用 cursor 走一遍全曲，记录每一步的 timeSec + notes
+
+时间表驱动：tick 循环按时间表调用 cursor.next()
+
+实时读取：cursor.next() 后从 cursor.NotesUnderCursor() 读取音符并播放
+
+用户判定：handleKeyPress 直接读取 cursor.NotesUnderCursor() 做判定
+
+1.3 当前架构的问题
+问题	描述
+预扫描性能开销	每次加载乐谱都需要完整走一遍全曲，长乐曲耗时明显
+时间表与真实播放不同步	时间表基于固定 BPM 计算，无法支持变速（渐快/渐慢）
+模块耦合度高	音频、键盘、统计都直接从 controller 读取状态，难以扩展
+缺乏事件广播机制	光标位置变化后，各模块独立轮询或依赖 controller 主动推送
+用户自定义循环困难	A-B 循环需要重建时间表，无法动态处理
+二、目标架构：事件驱动 + 时间线同步
+基于之前的讨论（cursor 自动处理 repeat/volta/D.S./D.C.），改造后的架构以 cursor 为唯一真相源，通过发布-订阅模式实现 MIDI、虚拟键盘、进度渲染的同步：
+
+text
+┌─────────────────────────────────────────────────────────────────┐
+│                目标架构：事件驱动 + 时间线同步                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│                    ┌─────────────────────┐                      │
+│                    │   PlaybackEngine    │                      │
+│                    │  (requestAnimation  │                      │
+│                    │   Frame 驱动)       │                      │
+│                    └──────────┬──────────┘                      │
+│                               │                                 │
+│                               ▼                                 │
+│                    ┌─────────────────────┐                      │
+│                    │   CursorDriver      │                      │
+│                    │  (封装 cursor.next) │                      │
+│                    └──────────┬──────────┘                      │
+│                               │                                 │
+│                               ▼                                 │
+│                    ┌─────────────────────┐                      │
+│                    │   EventBus          │                      │
+│                    │  (position-changed) │                      │
+│                    └──────────┬──────────┘                      │
+│                               │                                 │
+│         ┌─────────────────────┼─────────────────────┐          │
+│         ▼                     ▼                     ▼          │
+│  ┌─────────────┐     ┌─────────────┐     ┌─────────────────┐  │
+│  │ MIDI Scheduler│    │ Keyboard    │     │ Progress/Scroll │  │
+│  │ (提前调度)   │    │ Subscriber  │     │ Subscriber      │  │
+│  └─────────────┘     └─────────────┘     └─────────────────┘  │
+│         │                     │                     │          │
+│         ▼                     ▼                     ▼          │
+│  ┌─────────────┐     ┌─────────────┐     ┌─────────────────┐  │
+│  │ Tone.js     │     │ Virtual     │     │ ScoreViewer     │  │
+│  │ (Web Audio) │     │ Keyboard    │     │ (滚动/进度条)   │  │
+│  └─────────────┘     └─────────────┘     └─────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+2.1 核心设计原则
+Cursor 是唯一真相源：所有位置信息从 cursor.Iterator 读取
+
+事件驱动：位置变化通过 EventBus 广播，模块间解耦
+
+时间线统一：使用 CurrentEnrolledTimestamp 作为统一时间基准
+
+提前调度：MIDI 音符提前 500ms 调度，消除音频延迟
+
+三、改造方案（分阶段实施）
+Phase 1: 引入 EventBus（基础架构）
+目标：建立发布-订阅基础设施，为后续模块解耦做准备。
+
+新增文件：src/lib/event-bus.ts
+
+typescript
+// src/lib/event-bus.ts
+export type EventMap = {
+  'position-changed': PositionEvent;
+  'playback-started': void;
+  'playback-paused': void;
+  'playback-stopped': void;
+  'playback-ended': void;
+  'loop-boundary': { loopStart: number; loopEnd: number };
+};
+
+export interface PositionEvent {
+  enrolledTime: number;        // cursor.Iterator.CurrentEnrolledTimestamp
+  sourceTimestamp: number;     // cursor.Iterator.CurrentSourceTimestamp
+  notes: Note[];              // cursor.Iterator.CurrentVoiceEntries 的所有音符
+  measureNumber: number;
+  stepIndex: number;           // 当前步进索引
+  totalSteps: number;          // 总步数
+}
+
+class EventBus {
+  private listeners = new Map<keyof EventMap, Set<Function>>();
+  
+  on<K extends keyof EventMap>(event: K, callback: (data: EventMap[K]) => void): () => void {
+    // 订阅，返回取消订阅函数
+  }
+  
+  emit<K extends keyof EventMap>(event: K, data: EventMap[K]): void {
+    // 广播事件
+  }
+}
+
+export const eventBus = new EventBus();
+改造点：
+
+移除 PracticeCallbacks 接口中的 onCursorStepChange 等回调
+
+所有模块改用 eventBus.on() 订阅事件
+
+Phase 2: 重构 PracticeController → PlaybackEngine
+目标：将“预扫描 + 时间表驱动”改造为“实时帧驱动 + 事件广播”。
+
+核心变化：
+
+当前实现	改造后
+预扫描构建 cursorSchedule	移除预扫描，直接使用 cursor 实时推进
+setInterval 固定间隔驱动	requestAnimationFrame 驱动，支持变速
+各模块通过回调接收数据	通过 EventBus 广播 position-changed
+时间表基于固定 BPM	动态时间，支持 tempo 变化
+改造后代码：src/lib/playback-engine.ts
+
+typescript
+// src/lib/playback-engine.ts
+import { eventBus, PositionEvent } from './event-bus';
+
+export class PlaybackEngine {
+  private osmd: OpenSheetMusicDisplay | null = null;
+  private isPlaying = false;
+  private elapsedTime = 0;          // 秒，使用 CurrentEnrolledTimestamp 对齐
+  private tempoMultiplier = 1.0;    // 速度倍率 0.5-2.0
+  private loopStart: number | null = null;
+  private loopEnd: number | null = null;
+  private loopEnabled = false;
+  private rafId: number | null = null;
+  private lastTimestamp = 0;
+  
+  // 缓存上一次的位置，用于检测变化
+  private lastEnrolledTime = -1;
+  private currentStepIndex = 0;
+
+  setOsmd(osmd: OpenSheetMusicDisplay): void { this.osmd = osmd; }
+
+  play(): void {
+    if (!this.osmd) return;
+    this.isPlaying = true;
+    this.lastTimestamp = performance.now();
+    // 如果光标在末尾，重置到开始
+    if (this.osmd.cursor.Iterator.EndReached) {
+      this.resetCursor();
+    }
+    eventBus.emit('playback-started', undefined);
+    this.loop();
+  }
+
+  pause(): void {
+    this.isPlaying = false;
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    eventBus.emit('playback-paused', undefined);
+  }
+
+  stop(): void {
+    this.isPlaying = false;
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    this.elapsedTime = 0;
+    this.resetCursor();
+    eventBus.emit('playback-stopped', undefined);
+  }
+
+  private loop(): void {
+    if (!this.isPlaying || !this.osmd) return;
+    
+    const now = performance.now();
+    const delta = (now - this.lastTimestamp) / 1000 * this.tempoMultiplier;
+    this.lastTimestamp = now;
+    
+    this.elapsedTime += delta;
+    
+    // 检查用户自定义 A-B 循环
+    if (this.loopEnabled && this.loopEnd !== null && this.elapsedTime >= this.loopEnd) {
+      this.elapsedTime = this.loopStart ?? 0;
+      this.seekToEnrolledTime(this.elapsedTime);
+      eventBus.emit('loop-boundary', { 
+        loopStart: this.loopStart ?? 0, 
+        loopEnd: this.loopEnd 
+      });
+    }
+    
+    // 推进光标到当前时间
+    this.advanceCursorTo(this.elapsedTime);
+    
+    this.rafId = requestAnimationFrame(() => this.loop());
+  }
+
+  /**
+   * 核心方法：推进光标到目标时间
+   * 利用 OSMD cursor 内置的 repeat/volta/D.S./D.C. 处理
+   */
+  private advanceCursorTo(targetTime: number): void {
+    const iterator = this.osmd!.cursor.Iterator;
+    
+    // 如果目标时间已经到达或超过，无需推进
+    if (iterator.CurrentEnrolledTimestamp >= targetTime) return;
+    
+    let steps = 0;
+    const maxSteps = 10000; // 防止死循环
+    
+    while (iterator.CurrentEnrolledTimestamp < targetTime && steps < maxSteps) {
+      const hasNext = this.osmd!.cursor.next();
+      steps++;
+      
+      if (!hasNext || iterator.EndReached) {
+        eventBus.emit('playback-ended', undefined);
+        this.pause();
+        return;
+      }
+      
+      // 每次 cursor.next() 后广播位置变化
+      this.broadcastPosition();
+    }
+  }
+
+  /**
+   * 跳转到指定的 EnrolledTime
+   * 策略：重置光标后快进到目标时间
+   */
+  seekToEnrolledTime(targetTime: number): void {
+    if (!this.osmd) return;
+    
+    // 重置光标到开始
+    this.resetCursor();
+    
+    // 快进到目标时间
+    const iterator = this.osmd.cursor.Iterator;
+    let steps = 0;
+    const maxSteps = 50000;
+    
+    while (iterator.CurrentEnrolledTimestamp < targetTime && steps < maxSteps) {
+      const hasNext = this.osmd.cursor.next();
+      steps++;
+      if (!hasNext) break;
+    }
+    
+    this.elapsedTime = targetTime;
+    this.broadcastPosition();
+  }
+
+  private resetCursor(): void {
+    if (!this.osmd) return;
+    // 重置到第一个音符
+    // 注意：OSMD 可能没有直接的 reset 方法，需要通过重新创建 Iterator 实现
+    // 或循环 previous() 到开始
+    this.osmd.cursor.reset?.() ?? this.osmd.cursor.iterator.reset?.();
+  }
+
+  private broadcastPosition(): void {
+    const iterator = this.osmd!.cursor.Iterator;
+    const entries = iterator.CurrentVoiceEntries || [];
+    const allNotes: Note[] = [];
+    entries.forEach(entry => {
+      if (entry.Notes) allNotes.push(...entry.Notes);
+    });
+    
+    const event: PositionEvent = {
+      enrolledTime: iterator.CurrentEnrolledTimestamp ?? 0,
+      sourceTimestamp: iterator.CurrentSourceTimestamp ?? 0,
+      notes: allNotes,
+      measureNumber: iterator.CurrentMeasure?.MeasureNumber ?? 0,
+      stepIndex: this.currentStepIndex++,
+      totalSteps: -1, // 可通过预扫描获取，但非必须
+    };
+    
+    eventBus.emit('position-changed', event);
+  }
+
+  // 循环控制
+  setLoop(start: number, end: number): void {
+    this.loopStart = start;
+    this.loopEnd = end;
+    this.loopEnabled = true;
+  }
+
+  clearLoop(): void {
+    this.loopStart = null;
+    this.loopEnd = null;
+    this.loopEnabled = false;
+  }
+
+  setTempo(multiplier: number): void {
+    this.tempoMultiplier = Math.max(0.5, Math.min(2.0, multiplier));
+  }
+}
+关键改进：
+
+移除预扫描：不再需要提前走一遍全曲，cursor 实时推进
+
+帧驱动：使用 requestAnimationFrame，与屏幕刷新同步
+
+事件广播：每次 cursor.next() 后广播 position-changed
+
+动态循环：A-B 循环在帧循环中实时判断，无需重建时间表
+
+Phase 3: 重构音频引擎 → MIDI Scheduler
+目标：将 PianoAudioEngine 从“实时播放”改造为“提前调度”模式。
+
+改造后代码：src/lib/midi-scheduler.ts
+
+typescript
+// src/lib/midi-scheduler.ts
+import { eventBus, PositionEvent } from './event-bus';
+import { PianoAudioEngine } from './audio-engine';
+
+export class MidiScheduler {
+  private audioEngine: PianoAudioEngine;
+  private lookaheadMs = 500;        // 提前调度窗口
+  private scheduledNotes = new Map<number, number>(); // noteId -> scheduleTime
+  private lastScheduledTime = -1;
+  private isPlaying = false;
+
+  constructor(audioEngine: PianoAudioEngine) {
+    this.audioEngine = audioEngine;
+    
+    // 订阅位置变化
+    eventBus.on('position-changed', (event) => {
+      this.onPositionChanged(event);
+    });
+    
+    eventBus.on('playback-started', () => {
+      this.isPlaying = true;
+      this.lastScheduledTime = -1;
+    });
+    
+    eventBus.on('playback-paused', () => {
+      this.isPlaying = false;
+      this.audioEngine.stopAll();  // 立即停止所有发声
+    });
+    
+    eventBus.on('playback-stopped', () => {
+      this.isPlaying = false;
+      this.audioEngine.stopAll();
+      this.scheduledNotes.clear();
+    });
+  }
+
+  private onPositionChanged(event: PositionEvent): void {
+    if (!this.isPlaying) return;
+    
+    const currentTime = event.enrolledTime;
+    const lookaheadEnd = currentTime + this.lookaheadMs / 1000;
+    
+    // 只调度新时间窗口内的音符
+    // 注意：由于我们不再有预扫描的时间表，需要从当前位置向前探索
+    // 但这里有个挑战：如何获取未来 500ms 内的音符？
+    // 方案：在 PlaybackEngine 中同时广播一个“即将到来”的事件，
+    // 或者在 position-changed 中携带下一个音符的信息
+    
+    // 简化方案：利用 cursor 的 next() 在 PlaybackEngine 中已经推进，
+    // 每个 position-changed 对应一个音符/和弦，立即播放
+    // 但这样会有延迟问题
+    
+    // 更完善的方案：PlaybackEngine 额外维护一个“预览队列”
+    // 在 advanceCursorTo 中，除了推进到当前时间，还额外推进 lookahead 范围
+    // 并将这些音符通过单独的事件广播给 MidiScheduler
+  }
+}
+更好的设计：在 PlaybackEngine 中增加“预览推进”逻辑：
+
+typescript
+// 在 PlaybackEngine.advanceCursorTo 中
+private advanceCursorTo(targetTime: number): void {
+  // 1. 推进到当前时间（用于光标显示）
+  this.advanceToTime(targetTime);
+  
+  // 2. 额外推进 lookahead 时间（用于 MIDI 调度）
+  const lookaheadTime = targetTime + 0.5; // 500ms
+  this.advanceToTime(lookaheadTime, true); // silent mode: 不广播 cursor 事件
+}
+Phase 4: 虚拟键盘订阅
+目标：VirtualKeyboard 组件通过 EventBus 订阅位置变化，自动高亮。
+
+改造后代码：src/components/VirtualKeyboard.tsx（部分）
+
+typescript
+// src/components/VirtualKeyboard.tsx
+import { eventBus } from '@/lib/event-bus';
+import { useEffect, useState } from 'react';
+
+export function VirtualKeyboard({ onNotePlay }: VirtualKeyboardProps) {
+  const [activeNotes, setActiveNotes] = useState<Set<number>>(new Set());
+  
+  useEffect(() => {
+    const unsubscribe = eventBus.on('position-changed', (event) => {
+      // 从事件中提取当前音符的 MIDI 编号
+      const midiSet = new Set<number>();
+      event.notes.forEach(note => {
+        const midi = getMidiFromNote(note);
+        if (midi > 0) midiSet.add(midi);
+      });
+      setActiveNotes(midiSet);
+    });
+    
+    return unsubscribe;
+  }, []);
+  
+  // 渲染键盘，activeNotes 中的键高亮
+  // ...
+}
+Phase 5: ScoreViewer 进度同步
+目标：ScoreViewer 通过 EventBus 订阅位置变化，更新进度条和自动滚动。
+
+改造后代码：src/components/ScoreViewer.tsx（部分）
+
+typescript
+// src/components/ScoreViewer.tsx
+import { eventBus } from '@/lib/event-bus';
+import { useEffect, useRef } from 'react';
+
+export default function ScoreViewer({ musicXml, ...props }: ScoreViewerProps) {
+  const [progress, setProgress] = useState(0);
+  const [currentMeasure, setCurrentMeasure] = useState(0);
+  
+  useEffect(() => {
+    const unsubscribe = eventBus.on('position-changed', (event) => {
+      // 更新进度
+      // 需要知道总时长，可以从 PlaybackEngine 获取或预计算
+      setProgress(event.enrolledTime / totalDuration);
+      setCurrentMeasure(event.measureNumber);
+      
+      // 自动滚动到当前小节（可选）
+      if (osmdRef.current) {
+        scrollToMeasure(osmdRef.current, event.measureNumber);
+      }
+    });
+    
+    return unsubscribe;
+  }, []);
+  
+  // ...
+}
+Phase 6: 用户自定义循环（A-B Loop）
+目标：在 UI 中提供循环控制，调用 PlaybackEngine 的循环方法。
+
+新增组件：src/components/LoopControls.tsx
+
+typescript
+// src/components/LoopControls.tsx
+import { useState } from 'react';
+import { playbackEngine } from '@/lib/playback-engine';
+
+export function LoopControls() {
+  const [loopEnabled, setLoopEnabled] = useState(false);
+  const [loopA, setLoopA] = useState(0);
+  const [loopB, setLoopB] = useState(0);
+  
+  const handleSetA = () => {
+    // 从 PlaybackEngine 获取当前播放位置
+    const currentTime = playbackEngine.getCurrentTime();
+    setLoopA(currentTime);
+  };
+  
+  const handleSetB = () => {
+    const currentTime = playbackEngine.getCurrentTime();
+    setLoopB(currentTime);
+  };
+  
+  const handleToggleLoop = () => {
+    if (!loopEnabled) {
+      playbackEngine.setLoop(loopA, loopB);
+    } else {
+      playbackEngine.clearLoop();
+    }
+    setLoopEnabled(!loopEnabled);
+  };
+  
+  return (
+    <div className="flex items-center gap-2">
+      <button onClick={handleSetA}>A</button>
+      <button onClick={handleSetB}>B</button>
+      <button onClick={handleToggleLoop}>
+        {loopEnabled ? '🔁 循环开' : '⭕ 循环关'}
+      </button>
+    </div>
+  );
+}
+四、改造实施计划
+阶段	任务	文件	预估工时
+Phase 1	引入 EventBus	src/lib/event-bus.ts	2h
+Phase 2	重构 PracticeController → PlaybackEngine	src/lib/playback-engine.ts	8h
+Phase 3	重构音频引擎为 MIDI Scheduler	src/lib/midi-scheduler.ts	4h
+Phase 4	VirtualKeyboard 改用事件订阅	src/components/VirtualKeyboard.tsx	2h
+Phase 5	ScoreViewer 进度同步	src/components/ScoreViewer.tsx	2h
+Phase 6	用户自定义循环控制	src/components/LoopControls.tsx	3h
+Phase 7	移除旧代码 + 集成测试	全项目	4h
+总计			约 25h
+五、改造前后对比
+维度	改造前	改造后
+乐谱加载	预扫描全曲（O(n) 时间）	直接加载，无预扫描
+播放驱动	setInterval 固定间隔	requestAnimationFrame 帧驱动
+速度变化	不支持	支持 0.5x-2.0x 变速
+A-B 循环	需重建时间表	实时判断，动态切换
+模块耦合	controller 直接调用各模块	通过 EventBus 解耦
+扩展性	新增功能需修改 controller	新增订阅者即可
+重复处理	cursor 自动处理	cursor 自动处理（不变）
+六、注意事项
+OSMD cursor 的 reset 方法：当前 qing 代码中使用了 cursor.reset?.()，需确认 OSMD v2.1.0 是否支持，若不支持需自行实现重置逻辑（重新创建 Iterator）。
+
+CurrentEnrolledTimestamp 单位：需确认 OSMD 返回的是秒还是毫秒，确保与 requestAnimationFrame 的 delta 计算对齐。
+
+MIDI 调度的挑战：由于移除了预扫描，无法提前知道未来 500ms 的音符。解决方案是在 PlaybackEngine 中维护一个“预览队列”，在推进光标时同时推进一个“预览光标”用于 MIDI 调度。
+
+向后兼容：改造过程中保留 PracticeController 的接口，逐步迁移，避免一次性破坏性变更。
