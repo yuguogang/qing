@@ -55,11 +55,11 @@ export class PianoAudioEngine {
     const noteGain = ctx.createGain();
     noteGain.connect(this.masterGain);
 
-    // ADSR 包络（更短促，避免"敲锣尾音"感）
+    // ADSR 包络（短促断奏，音符间留空隙）
     const attack = 0.005;  // 快速起音
-    const decay = 0.1;     // 快速衰减
-    const sustain = 0.2;   // 低延音
-    const release = Math.min(0.3, duration * 0.3);
+    const decay = 0.05;    // 快速衰减
+    const sustain = 0.15;  // 低延音
+    const release = 0.05;  // 短释放，避免连奏感
 
     noteGain.gain.setValueAtTime(0, now);
     noteGain.gain.linearRampToValueAtTime(velocity * 0.6, now + attack); // 降低整体音量
