@@ -183,6 +183,7 @@ export class PracticeController {
 
     // 先读取当前位置（cursor.reset() + show() 后光标在第一个音符）
     let noteInfos = readCurrentNotes();
+    console.log('[buildCursorSchedule] after reset+show, first note midis:', noteInfos.map(n => n.midi));
     if (noteInfos.length > 0) {
       recordStep(noteInfos);
     }
@@ -247,6 +248,11 @@ export class PracticeController {
     // 重置光标
     this.osmd?.cursor?.reset();
     this.osmd?.cursor?.show();
+
+    // DEBUG: 检查 reset 后光标位置的音符
+    const debugNotes = this.osmd?.cursor?.NotesUnderCursor() ?? [];
+    const debugMidis = debugNotes.filter(n => n.Pitch).map(n => n.halfTone);
+    console.log('[start] after reset+show, cursor notes midis:', debugMidis, 'schedule[0]:', this.cursorSchedule[0]?.notes.map(n => n.midi));
 
     // 发布 playback:start 事件
     eventBus.emit('playback:start', { bpm: this.bpm });
@@ -343,6 +349,11 @@ export class PracticeController {
       if (this.nextStepIndex > 0 && !this.osmd.cursor.iterator.EndReached) {
         this.osmd.cursor.next();
         this.currentCursorStep++;
+      } else if (this.nextStepIndex === 0) {
+        // DEBUG: step 0 时检查光标位置
+        const step0Notes = this.osmd.cursor.NotesUnderCursor();
+        const step0Midis = step0Notes.filter(n => n.Pitch).map(n => n.halfTone);
+        console.log('[tick] step 0: cursor midis before playing:', step0Midis, 'expected:', stepInfo.notes.map(n => n.midi));
       }
 
       // 发布 cursor:step 事件 - 所有组件同步响应
