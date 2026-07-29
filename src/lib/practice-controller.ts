@@ -152,8 +152,12 @@ export class PracticeController {
       const noteInfos: { midi: number; duration: number }[] = [];
       for (const note of notes) {
         if (note.Pitch) {
+          // 手动计算 MIDI：(Octave + 1) * 12 + FundamentalNote + Accidental
+          // NoteEnum: C=0, D=2, E=4, F=5, G=7, A=9, B=11
+          const pitch = note.Pitch;
+          const midi = (pitch.Octave + 1) * 12 + pitch.FundamentalNote + pitch.AccidentalHalfTones;
           noteInfos.push({
-            midi: note.halfTone,
+            midi,
             duration: (note.Length?.RealValue ?? 0.5) * 4,
           });
         }
@@ -369,7 +373,9 @@ export class PracticeController {
         
         for (const note of currentNotes) {
           if (note.Pitch) {
-            const midi = note.halfTone;
+            // 手动计算 MIDI：(Octave + 1) * 12 + FundamentalNote + Accidental
+            const pitch = note.Pitch;
+            const midi = (pitch.Octave + 1) * 12 + pitch.FundamentalNote + pitch.AccidentalHalfTones;
             const duration = (note.Length?.RealValue ?? 0.5) * 4 * (60 / this.bpm);
             noteInfos.push({ midi, duration });
           }
@@ -423,8 +429,12 @@ export class PracticeController {
     const currentNotes = this.osmd?.cursor?.NotesUnderCursor() ?? [];
     const currentMidis = new Set<number>();
     for (const note of currentNotes) {
-      const midi = note.halfTone;
-      if (midi >= 0) currentMidis.add(midi);
+      if (note.Pitch) {
+        // 手动计算 MIDI
+        const pitch = note.Pitch;
+        const midi = (pitch.Octave + 1) * 12 + pitch.FundamentalNote + pitch.AccidentalHalfTones;
+        currentMidis.add(midi);
+      }
     }
 
     if (!this.areSetsEqual(this.activeNotes, currentMidis)) {
@@ -463,7 +473,10 @@ export class PracticeController {
     const expectedMidis = new Set<number>();
     for (const note of currentNotes) {
       if (note.Pitch) {
-        expectedMidis.add(note.halfTone);
+        // 手动计算 MIDI
+        const pitch = note.Pitch;
+        const midi = (pitch.Octave + 1) * 12 + pitch.FundamentalNote + pitch.AccidentalHalfTones;
+        expectedMidis.add(midi);
       }
     }
 
