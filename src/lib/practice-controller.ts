@@ -391,7 +391,14 @@ export class PracticeController {
       this.nextStepIndex >= this.cursorSchedule.length
     ) {
       console.log('[tick] stop reached. EndReached:', this.osmd?.cursor?.iterator?.EndReached, 'nextStepIndex:', this.nextStepIndex, 'scheduleLength:', this.cursorSchedule.length);
-      this.stop();
+      // 播放完成：不杀音频，让最后一个音符自然衰减
+      this.isRunning = false;
+      this.isPaused = false;
+      if (this.tickInterval) {
+        clearInterval(this.tickInterval);
+        this.tickInterval = null;
+      }
+      this.callbacks.onFinish?.();
       return;
     }
 
