@@ -333,8 +333,9 @@ export class PracticeController {
       loopCount++;
 
       // 步进 cursor（OSMD 内部自动处理 repeat 回跳）
+      // 注意：cursor.reset() 后光标已在第一个音符位置，所以 step 0 不需要 next()
       if (!this.osmd?.cursor) break;
-      if (!this.osmd.cursor.iterator.EndReached) {
+      if (this.nextStepIndex > 0 && !this.osmd.cursor.iterator.EndReached) {
         // DEBUG: log iterator state before next()
         const veBefore = this.osmd.cursor.iterator.CurrentVisibleVoiceEntries();
         const notesBefore = veBefore.flatMap(ve => ve.Notes);
@@ -348,6 +349,9 @@ export class PracticeController {
         const notesAfter = veAfter.flatMap(ve => ve.Notes);
         const midisAfter = notesAfter.filter(n => n.Pitch).map(n => getMidiFromNote(n));
         console.log(`[tick] step ${this.nextStepIndex}: beforeNext midis=${JSON.stringify(midisBefore)} afterNext midis=${JSON.stringify(midisAfter)} EndReached=${this.osmd.cursor.iterator.EndReached}`);
+      } else if (this.nextStepIndex === 0) {
+        // step 0: cursor.reset() 后已在第一个音符，不需要 next()
+        console.log(`[tick] step 0: cursor already at first note after reset`);
       }
 
       // 播放当前 step 的音符（实时读取 cursor 当前位置的音符，避免预扫描缓存问题）
