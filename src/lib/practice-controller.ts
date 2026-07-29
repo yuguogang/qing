@@ -152,11 +152,9 @@ export class PracticeController {
       const noteInfos: { midi: number; duration: number }[] = [];
       for (const note of notes) {
         if (note.Pitch) {
-          // 手动计算 MIDI：(Octave + 1) * 12 + FundamentalNote + Accidental
-          // NoteEnum: C=0, D=2, E=4, F=5, G=7, A=9, B=11
-          const pitch = note.Pitch;
-          const midi = (pitch.Octave + 1) * 12 + pitch.FundamentalNote + pitch.AccidentalHalfTones;
-          console.log(`[readCurrentNotes] Octave=${pitch.Octave} Fundamental=${pitch.FundamentalNote} Accidental=${pitch.AccidentalHalfTones} halfTone=${note.halfTone} calculated=${midi}`);
+          // OSMD 的 halfTone 比标准 MIDI 小 12，需要加 12 修正
+          // 验证：C4 的 halfTone=48，标准 MIDI=60，差值=12
+          const midi = note.halfTone + 12;
           noteInfos.push({
             midi,
             duration: (note.Length?.RealValue ?? 0.5) * 4,
@@ -263,7 +261,7 @@ export class PracticeController {
         fundamental: p.FundamentalNote,
         accidental: p.AccidentalHalfTones,
         halfTone: n.halfTone,
-        calculated: (p.Octave + 1) * 12 + p.FundamentalNote + p.AccidentalHalfTones,
+        calculated: n.halfTone + 12,
       };
     });
     console.log('[start] after reset+show, cursor debug:', JSON.stringify(debugInfo));
@@ -374,7 +372,7 @@ export class PracticeController {
             fundamental: p.FundamentalNote,
             accidental: p.AccidentalHalfTones,
             halfTone: n.halfTone,
-            calculated: (p.Octave + 1) * 12 + p.FundamentalNote + p.AccidentalHalfTones,
+            calculated: n.halfTone + 12,
           };
         });
         console.log('[tick] step 0 debug:', JSON.stringify(step0Info), 'expected:', stepInfo.notes.map(n => n.midi));
@@ -393,9 +391,8 @@ export class PracticeController {
         
         for (const note of currentNotes) {
           if (note.Pitch) {
-            // 手动计算 MIDI：(Octave + 1) * 12 + FundamentalNote + Accidental
-            const pitch = note.Pitch;
-            const midi = (pitch.Octave + 1) * 12 + pitch.FundamentalNote + pitch.AccidentalHalfTones;
+            // OSMD 的 note.halfTone 比标准 MIDI 小 12，需要加 12 修正
+            const midi = note.halfTone + 12;
             const duration = (note.Length?.RealValue ?? 0.5) * 4 * (60 / this.bpm);
             noteInfos.push({ midi, duration });
           }
@@ -450,9 +447,8 @@ export class PracticeController {
     const currentMidis = new Set<number>();
     for (const note of currentNotes) {
       if (note.Pitch) {
-        // 手动计算 MIDI
-        const pitch = note.Pitch;
-        const midi = (pitch.Octave + 1) * 12 + pitch.FundamentalNote + pitch.AccidentalHalfTones;
+        // OSMD 的 note.halfTone 比标准 MIDI 小 12，需要加 12 修正
+        const midi = note.halfTone + 12;
         currentMidis.add(midi);
       }
     }
@@ -493,9 +489,8 @@ export class PracticeController {
     const expectedMidis = new Set<number>();
     for (const note of currentNotes) {
       if (note.Pitch) {
-        // 手动计算 MIDI
-        const pitch = note.Pitch;
-        const midi = (pitch.Octave + 1) * 12 + pitch.FundamentalNote + pitch.AccidentalHalfTones;
+        // OSMD 的 note.halfTone 比标准 MIDI 小 12，需要加 12 修正
+        const midi = note.halfTone + 12;
         expectedMidis.add(midi);
       }
     }
