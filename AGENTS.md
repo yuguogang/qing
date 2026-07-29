@@ -54,6 +54,7 @@
 │       ├── spectrum-colors.ts # 浅雅七色谱（按音高着色）
 │       ├── practice-controller.ts # 练习控制器（光标、节拍、统计）
 │       ├── audio-engine.ts  # Web Audio 音频引擎
+│       ├── event-bus.ts     # 客户端事件总线（pub/sub 同步机制）
 │       └── utils.ts         # 通用工具函数
 ├── PLAN_v2.md               # v2 改造计划文档
 ├── DESIGN.md                # 设计规范
@@ -65,6 +66,38 @@
 **仅允许使用 pnpm** 作为包管理器，**严禁使用 npm 或 yarn**。
 
 ## 核心功能模块
+
+### 事件总线（EventBus）同步机制
+
+纯客户端 pub/sub 事件系统，确保光标/虚拟键盘/MIDI 发音步调一致。
+
+**事件类型：**
+| 事件 | 触发时机 | 载荷 |
+|------|----------|------|
+| `cursor:step` | 光标推进到新 step | `{ step, totalSteps }` |
+| `note:start` | 音符开始播放 | `{ midi, duration, velocity }` |
+| `note:end` | 音符结束播放 | `{ midi }` |
+| `playback:start` | 播放开始 | `{ bpm }` |
+| `playback:stop` | 播放停止 | `{ reason: 'completed' \| 'user' \| 'error' }` |
+| `playback:repeat` | 遇到 repeat 回跳 | `{ fromStep, toStep }` |
+
+**使用方式：**
+```typescript
+import { eventBus } from '@/lib/event-bus';
+
+// 订阅
+const unsub = eventBus.on('cursor:step', ({ step, totalSteps }) => {
+  // 更新 UI
+});
+
+// 发布（由 PracticeController 内部调用）
+eventBus.emit('note:start', { midi: 60, duration: 0.5, velocity: 0.8 });
+
+// 取消订阅
+unsub();
+```
+
+**Repeat 处理：** `cursor.next()` 内部由 OSMD 的 `MusicPartManagerIterator` 自动处理 repeat/volta/D.S. 跳转。预扫描时通过比较 `CurrentSourceTimestamp` 检测回跳，发布 `playback:repeat` 事件。
 
 ### 显示模式（三种）
 

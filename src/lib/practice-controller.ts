@@ -13,6 +13,7 @@
 
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import { PianoAudioEngine } from './audio-engine';
+import { eventBus } from './event-bus';
 
 export type PracticeMode = 'browse' | 'follow' | 'sightsinging';
 export type TimingGrade = 'perfect' | 'good' | 'miss';
@@ -54,13 +55,6 @@ export interface PracticeCallbacks {
   onCursorStepChange?: (step: number) => void;
   onFinish?: () => void;
   onActiveNotesChange?: (activeNotes: Set<number>) => void;
-}
-
-// 从 OSMD Note 提取 MIDI
-function getMidiFromNote(note: { Pitch?: { Octave: number; FundamentalNote: number; Accidental?: number } | null }): number {
-  if (!note.Pitch) return -1;
-  const accidental = note.Pitch.Accidental ?? 0;
-  return (note.Pitch.Octave + 1) * 12 + note.Pitch.FundamentalNote + accidental;
 }
 
 export class PracticeController {
@@ -152,50 +146,57 @@ export class PracticeController {
     let realMusicTime = 0;
     let prevMusicTime = -1;
 
-    // 先 next() 到第一个有效位置
-    this.osmd.cursor.next();
-
-    while (!this.osmd.cursor.iterator.EndReached) {
-      const notes = this.osmd.cursor.NotesUnderCursor();
+    // 辅助函数：读取当前 cursor 位置的音符
+    const readCurrentNotes = (): { midi: number; duration: number }[] => {
+      const notes = this.osmd!.cursor!.NotesUnderCursor();
       const noteInfos: { midi: number; duration: number }[] = [];
-
       for (const note of notes) {
         if (note.Pitch) {
-          const midi = note.halfTone; // 使用 OSMD 内置 halfTone
-          // note.Length.RealValue 以 whole note 为单位，转换为 quarter note 单位
-          const duration = (note.Length?.RealValue ?? 0.5) * 4;
-          noteInfos.push({ midi, duration });
+          noteInfos.push({
+            midi: note.halfTone,
+            duration: (note.Length?.RealValue ?? 0.5) * 4,
+          });
         }
       }
+      return noteInfos;
+    };
 
-      const musicTime = this.osmd.cursor.iterator.CurrentSourceTimestamp.RealValue;
-
-      // 计算实际演奏时间（考虑 repeat 回跳）
+    // 辅助函数：记录当前 step
+    const recordStep = (noteInfos: { midi: number; duration: number }[]) => {
+      const musicTime = this.osmd!.cursor!.iterator.CurrentSourceTimestamp.RealValue;
       if (prevMusicTime >= 0) {
         const delta = musicTime - prevMusicTime;
         if (delta >= 0) {
           realMusicTime += delta;
         } else {
-          // 回跳发生：增加回跳段的长度
+          // repeat 回跳：累加回跳段长度
           realMusicTime += prevMusicTime - musicTime;
+          eventBus.emit('playback:repeat', { fromStep: step, toStep: schedule.length });
         }
       }
-
-      // CurrentSourceTimestamp.RealValue 以 whole note 为单位，转换为 quarter note 再计算秒
+      // CurrentSourceTimestamp.RealValue 以 whole note 为单位，转 quarter note 再算秒
       const timeSec = realMusicTime * 4 * (60 / DEFAULT_BPM);
-      // DEBUG: log MIDI values during pre-scan
-      console.log(`[buildCursorSchedule] step ${step}: midis=${JSON.stringify(noteInfos.map(n => n.midi))} musicTime=${musicTime} realMusicTime=${realMusicTime.toFixed(3)} timeSec=${timeSec.toFixed(3)}`);
       schedule.push({ step, timeSec, notes: noteInfos });
       step++;
       prevMusicTime = musicTime;
+    };
 
+    // 先读取当前位置（cursor.reset() + show() 后光标在第一个音符）
+    let noteInfos = readCurrentNotes();
+    if (noteInfos.length > 0) {
+      recordStep(noteInfos);
+    }
+
+    // 循环读取后续音符
+    while (!this.osmd.cursor.iterator.EndReached) {
       this.osmd.cursor.next();
+      noteInfos = readCurrentNotes();
+      if (noteInfos.length === 0) continue;
+      recordStep(noteInfos);
     }
 
     // 恢复光标到开头
     this.osmd.cursor.reset();
-
-    // 如果之前有位置，恢复
     if (savedStep > 0) {
       for (let i = 0; i < savedStep; i++) {
         if (!this.osmd.cursor.iterator.EndReached) {
@@ -206,7 +207,7 @@ export class PracticeController {
 
     this.cursorSchedule = schedule;
     this.stats.totalNotes = schedule.reduce((sum, s) => sum + s.notes.length, 0);
-    console.log('[buildCursorSchedule] built', schedule.length, 'steps. first 3:', schedule.slice(0, 3), 'last 3:', schedule.slice(-3));
+    console.log('[buildCursorSchedule] built', schedule.length, 'steps');
 
     return schedule;
   }
@@ -247,11 +248,13 @@ export class PracticeController {
     this.osmd?.cursor?.reset();
     this.osmd?.cursor?.show();
 
+    // 发布 playback:start 事件
+    eventBus.emit('playback:start', { bpm: this.bpm });
+
     // 浏览模式：直接播放完整序列
     if (this.mode === 'browse') {
       const notes = this.loadNotes();
       this.audioEngine?.playSequence(notes, this.bpm);
-      // 浏览模式不需要逐 tick 推进 cursor，只需更新统计时间
       this.tickInterval = window.setInterval(() => {
         if (!this.isRunning || this.isPaused) return;
         this.callbacks.onStatsUpdate?.({ ...this.stats });
@@ -291,6 +294,10 @@ export class PracticeController {
       this.tickInterval = null;
     }
     this.audioEngine?.stop();
+    
+    // 发布 playback:stop 事件
+    eventBus.emit('playback:stop', { reason: 'user' });
+    
     this.callbacks.onFinish?.();
   }
 
@@ -316,7 +323,7 @@ export class PracticeController {
     this.callbacks.onStatsUpdate?.({ ...this.stats });
   }
 
-  // 主 tick
+  // 主 tick - 通过 EventBus 同步所有组件
   private tick() {
     if (!this.isRunning || this.isPaused) return;
 
@@ -326,76 +333,68 @@ export class PracticeController {
     const scaledTime = elapsedSec * (this.bpm / DEFAULT_BPM);
 
     // 推进 cursor 到当前时间对应的 step
-    let loopCount = 0;
     while (this.nextStepIndex < this.cursorSchedule.length) {
       const stepInfo = this.cursorSchedule[this.nextStepIndex];
       if (scaledTime < stepInfo.timeSec) break;
-      loopCount++;
 
       // 步进 cursor（OSMD 内部自动处理 repeat 回跳）
-      // 注意：cursor.reset() 后光标已在第一个音符位置，所以 step 0 不需要 next()
       if (!this.osmd?.cursor) break;
+      
       if (this.nextStepIndex > 0 && !this.osmd.cursor.iterator.EndReached) {
-        // DEBUG: log iterator state before next()
-        const veBefore = this.osmd.cursor.iterator.CurrentVisibleVoiceEntries();
-        const notesBefore = veBefore.flatMap(ve => ve.Notes);
-        const midisBefore = notesBefore.filter(n => n.Pitch).map(n => getMidiFromNote(n));
-        
         this.osmd.cursor.next();
         this.currentCursorStep++;
-        
-        // DEBUG: log iterator state after next()
-        const veAfter = this.osmd.cursor.iterator.CurrentVisibleVoiceEntries();
-        const notesAfter = veAfter.flatMap(ve => ve.Notes);
-        const midisAfter = notesAfter.filter(n => n.Pitch).map(n => getMidiFromNote(n));
-        console.log(`[tick] step ${this.nextStepIndex}: beforeNext midis=${JSON.stringify(midisBefore)} afterNext midis=${JSON.stringify(midisAfter)} EndReached=${this.osmd.cursor.iterator.EndReached}`);
-      } else if (this.nextStepIndex === 0) {
-        // step 0: cursor.reset() 后已在第一个音符，不需要 next()
-        console.log(`[tick] step 0: cursor already at first note after reset`);
       }
 
-      // 播放当前 step 的音符（实时读取 cursor 当前位置的音符，避免预扫描缓存问题）
+      // 发布 cursor:step 事件 - 所有组件同步响应
+      eventBus.emit('cursor:step', { 
+        step: this.nextStepIndex, 
+        totalSteps: this.cursorSchedule.length 
+      });
+
+      // 读取当前 cursor 位置的音符并播放
       if (this.mode !== 'browse') {
         const currentNotes = this.osmd.cursor.NotesUnderCursor();
         const noteInfos: { midi: number; duration: number }[] = [];
+        
         for (const note of currentNotes) {
           if (note.Pitch) {
-            // DEBUG: 对比 getMidiFromNote vs OSMD 内置 halfTone
-            const ourMidi = getMidiFromNote(note);
-            const osmdHalfTone = note.halfTone;
-            console.log(`[pitch] step ${this.nextStepIndex}: Octave=${note.Pitch.Octave} Fundamental=${note.Pitch.FundamentalNote} Accidental=${note.Pitch.Accidental ?? 0} ourMidi=${ourMidi} halfTone=${osmdHalfTone}`);
-            const midi = osmdHalfTone; // 使用 OSMD 内置的 halfTone
+            const midi = note.halfTone;
             const duration = (note.Length?.RealValue ?? 0.5) * 4 * (60 / this.bpm);
             noteInfos.push({ midi, duration });
           }
         }
-        console.log('[tick] step', this.nextStepIndex, 'notes', noteInfos.length, 'timeSec', stepInfo.timeSec.toFixed(3), 'scaledTime', scaledTime.toFixed(3), 'midis', noteInfos.map(n => n.midi));
+
+        // 发布 note:start 事件并播放音频
         for (const note of noteInfos) {
           this.audioEngine?.playNote(note.midi, note.duration, 0.8);
+          eventBus.emit('note:start', { 
+            midi: note.midi, 
+            duration: note.duration, 
+            velocity: 0.8 
+          });
         }
       }
 
-      // 切换判定窗口：先标记上一个窗口的未命中
+      // 切换判定窗口
       this.checkMissedNotes();
-
-      // 设置新窗口
       this.expectedNotes = new Set(stepInfo.notes.map((n) => n.midi));
       this.judgments = new Map();
       this.currentStepStartTime = now;
 
-      // 更新 cursor step 回调
+      // 回调（向后兼容）
       this.callbacks.onCursorStepChange?.(this.nextStepIndex);
 
       this.nextStepIndex++;
     }
 
-    // 完成检查：cursor 到达末尾或 schedule 走完
+    // 完成检查
     if (
       this.osmd?.cursor?.iterator?.EndReached ||
       this.nextStepIndex >= this.cursorSchedule.length
     ) {
-      console.log('[tick] stop reached. EndReached:', this.osmd?.cursor?.iterator?.EndReached, 'nextStepIndex:', this.nextStepIndex, 'scheduleLength:', this.cursorSchedule.length);
-      // 播放完成：不杀音频，让最后一个音符自然衰减
+      // 发布 playback:stop 事件
+      eventBus.emit('playback:stop', { reason: 'completed' });
+      
       this.isRunning = false;
       this.isPaused = false;
       if (this.tickInterval) {
@@ -406,7 +405,7 @@ export class PracticeController {
       return;
     }
 
-    // 检查当前判定窗口超时
+    // 检查超时
     this.checkMissedNotes();
 
     // 更新活跃音符
@@ -422,7 +421,6 @@ export class PracticeController {
       this.callbacks.onActiveNotesChange?.(new Set(currentMidis));
     }
 
-    // 更新统计回调
     this.callbacks.onStatsUpdate?.({ ...this.stats });
   }
 
@@ -453,8 +451,9 @@ export class PracticeController {
     const currentNotes = this.osmd?.cursor?.NotesUnderCursor() ?? [];
     const expectedMidis = new Set<number>();
     for (const note of currentNotes) {
-      const midi = getMidiFromNote(note);
-      if (midi >= 0) expectedMidis.add(midi);
+      if (note.Pitch) {
+        expectedMidis.add(note.halfTone);
+      }
     }
 
     // 当前 cursor 位置是否包含该音符
