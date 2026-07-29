@@ -183,6 +183,8 @@ export class PracticeController {
 
       // CurrentSourceTimestamp.RealValue 以 whole note 为单位，转换为 quarter note 再计算秒
       const timeSec = realMusicTime * 4 * (60 / DEFAULT_BPM);
+      // DEBUG: log MIDI values during pre-scan
+      console.log(`[buildCursorSchedule] step ${step}: midis=${JSON.stringify(noteInfos.map(n => n.midi))} musicTime=${musicTime} realMusicTime=${realMusicTime.toFixed(3)} timeSec=${timeSec.toFixed(3)}`);
       schedule.push({ step, timeSec, notes: noteInfos });
       step++;
       prevMusicTime = musicTime;
@@ -333,8 +335,19 @@ export class PracticeController {
       // 步进 cursor（OSMD 内部自动处理 repeat 回跳）
       if (!this.osmd?.cursor) break;
       if (!this.osmd.cursor.iterator.EndReached) {
+        // DEBUG: log iterator state before next()
+        const veBefore = this.osmd.cursor.iterator.CurrentVisibleVoiceEntries();
+        const notesBefore = veBefore.flatMap(ve => ve.Notes);
+        const midisBefore = notesBefore.filter(n => n.Pitch).map(n => getMidiFromNote(n));
+        
         this.osmd.cursor.next();
         this.currentCursorStep++;
+        
+        // DEBUG: log iterator state after next()
+        const veAfter = this.osmd.cursor.iterator.CurrentVisibleVoiceEntries();
+        const notesAfter = veAfter.flatMap(ve => ve.Notes);
+        const midisAfter = notesAfter.filter(n => n.Pitch).map(n => getMidiFromNote(n));
+        console.log(`[tick] step ${this.nextStepIndex}: beforeNext midis=${JSON.stringify(midisBefore)} afterNext midis=${JSON.stringify(midisAfter)} EndReached=${this.osmd.cursor.iterator.EndReached}`);
       }
 
       // 播放当前 step 的音符（实时读取 cursor 当前位置的音符，避免预扫描缓存问题）
