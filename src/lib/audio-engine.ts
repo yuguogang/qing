@@ -39,6 +39,13 @@ export class PianoAudioEngine {
     }
   }
 
+  // 恢复音频上下文（浏览器要求用户交互后才能播放音频）
+  async resume(): Promise<void> {
+    if (this.audioContext?.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+  }
+
   // 播放单个音符（钢琴音色）
   playNote(midi: number, duration: number, velocity: number = 0.8): void {
     if (!this.audioContext || !this.masterGain) return;

@@ -237,7 +237,7 @@ export class PracticeController {
   }
 
   // 开始
-  start() {
+  async start() {
     if (this.isRunning) return;
 
     this.isRunning = true;
@@ -247,6 +247,9 @@ export class PracticeController {
     this.currentCursorStep = 0;
     this.expectedNotes = new Set();
     this.judgments = new Map();
+
+    // 确保音频上下文已恢复（浏览器要求用户交互后才能播放音频）
+    await this.audioEngine?.resume();
 
     // 重置光标
     this.osmd?.cursor?.reset();
