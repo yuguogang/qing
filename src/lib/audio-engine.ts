@@ -51,8 +51,14 @@ export class PianoAudioEngine {
   }
 
   // 播放单个音符（钢琴音色）
-  playNote(midi: number, duration: number, velocity: number = 0.8): void {
+  async playNote(midi: number, duration: number, velocity: number = 0.8): Promise<void> {
     if (!this.audioContext || !this.masterGain) return;
+
+    // 确保音频上下文已恢复（浏览器要求用户交互后才能播放音频）
+    if (this.audioContext.state === 'suspended') {
+      console.log('[audioEngine] playNote: resuming suspended context...');
+      await this.audioContext.resume();
+    }
 
     console.log(`[audioEngine] playNote: midi=${midi}, duration=${duration.toFixed(3)}, velocity=${velocity}, ctxState=${this.audioContext.state}`);
 
