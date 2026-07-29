@@ -423,66 +423,25 @@ export default function Home() {
     loadNotes();
   }, [setOSMD, loadNotes]);
 
-  // 伴奏基准 BPM，需与 musicxml-parser.ts 中解析音符时使用的 DEFAULT_BPM 保持一致
-  const ACCOMPANIMENT_BPM_BASE = 80;
-
-  // 伴奏
-  const accompanimentTimeoutsRef = useRef<number[]>([]);
-
-  const playAccompaniment = useCallback((startTimestamp?: number) => {
-    if (!audioEngineRef.current || parsedNotes.length === 0) return;
-    const engine = audioEngineRef.current;
-    const timeScale = ACCOMPANIMENT_BPM_BASE / tempo;
-    const vol = volume / 100;
-    const base = startTimestamp ?? performance.now();
-    accompanimentTimeoutsRef.current.forEach(id => clearTimeout(id));
-    accompanimentTimeoutsRef.current = [];
-    const now = performance.now();
-    parsedNotes.forEach((note) => {
-      const targetTime = base + note.startTime * timeScale * 1000;
-      const delay = targetTime - now;
-      // 已经错过超过 200ms 的音符不再补播
-      if (delay < -200) return;
-      const timeout = window.setTimeout(() => {
-        engine.playNote(note.midi, note.duration * timeScale, vol);
-      }, Math.max(0, delay));
-      accompanimentTimeoutsRef.current.push(timeout);
-    });
-  }, [parsedNotes, tempo, volume]);
-
-  const stopAccompaniment = useCallback(() => {
-    accompanimentTimeoutsRef.current.forEach(id => clearTimeout(id));
-    accompanimentTimeoutsRef.current = [];
-    audioEngineRef.current?.stop();
-  }, []);
 
   // 播放/暂停
   const handlePlayPause = useCallback(() => {
     if (practiceState.isPlaying) {
-      stopAccompaniment();
       pause();
     } else {
       start();
-      if (practiceMode === "follow") {
-        // 使用 controller 内部记录的 startTime 作为统一时间基准，
-        // 保证光标、伴奏、虚拟键盘高亮三者同源
-        playAccompaniment(getStartTime());
-      }
     }
-  }, [practiceState.isPlaying, practiceMode, playAccompaniment, start, pause, stopAccompaniment, getStartTime]);
+  }, [practiceState.isPlaying, practiceMode, start, pause]);
 
   // 重新开始
   const handleRestart = useCallback(() => {
-    stopAccompaniment();
+    
     stop();
     reset();
     setTimeout(() => {
       start();
-      if (practiceMode === "follow") {
-        playAccompaniment(getStartTime());
-      }
     }, 100);
-  }, [stopAccompaniment, stop, reset, practiceMode, playAccompaniment, start, getStartTime]);
+  }, [stop, reset, practiceMode, start]);
 
   // 模式切换
   const handleModeChange = useCallback((mode: PracticeMode) => {

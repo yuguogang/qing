@@ -371,7 +371,6 @@ export class PracticeController {
         }
 
         // 定位日志：看每个 step 读取了几个音符
-        console.log(`[step ${this.nextStepIndex}] notes=${currentNotes.length} midis=${JSON.stringify(noteInfos.map(n => n.midi))}`);
 
         for (const note of noteInfos) {
           this.audioEngine?.playNote(note.midi, note.duration, 0.8);
