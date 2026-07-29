@@ -161,7 +161,7 @@ export class PracticeController {
 
       for (const note of notes) {
         if (note.Pitch) {
-          const midi = getMidiFromNote(note);
+          const midi = note.halfTone; // 使用 OSMD 内置 halfTone
           // note.Length.RealValue 以 whole note 为单位，转换为 quarter note 单位
           const duration = (note.Length?.RealValue ?? 0.5) * 4;
           noteInfos.push({ midi, duration });
@@ -356,7 +356,11 @@ export class PracticeController {
         const noteInfos: { midi: number; duration: number }[] = [];
         for (const note of currentNotes) {
           if (note.Pitch) {
-            const midi = getMidiFromNote(note);
+            // DEBUG: 对比 getMidiFromNote vs OSMD 内置 halfTone
+            const ourMidi = getMidiFromNote(note);
+            const osmdHalfTone = note.halfTone;
+            console.log(`[pitch] step ${this.nextStepIndex}: Octave=${note.Pitch.Octave} Fundamental=${note.Pitch.FundamentalNote} Accidental=${note.Pitch.Accidental ?? 0} ourMidi=${ourMidi} halfTone=${osmdHalfTone}`);
+            const midi = osmdHalfTone; // 使用 OSMD 内置的 halfTone
             const duration = (note.Length?.RealValue ?? 0.5) * 4 * (60 / this.bpm);
             noteInfos.push({ midi, duration });
           }
@@ -398,7 +402,7 @@ export class PracticeController {
     const currentNotes = this.osmd?.cursor?.NotesUnderCursor() ?? [];
     const currentMidis = new Set<number>();
     for (const note of currentNotes) {
-      const midi = getMidiFromNote(note);
+      const midi = note.halfTone;
       if (midi >= 0) currentMidis.add(midi);
     }
 
