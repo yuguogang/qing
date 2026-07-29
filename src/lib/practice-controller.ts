@@ -250,6 +250,7 @@ export class PracticeController {
 
     // 确保音频上下文已恢复（浏览器要求用户交互后才能播放音频）
     await this.audioEngine?.resume();
+    console.log('[start] audio engine resumed, state:', this.audioEngine?.getAudioContext()?.state);
 
     // 重置光标
     this.osmd?.cursor?.reset();
