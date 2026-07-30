@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { CheckCircle2, XCircle, Target, TrendingUp, Zap, Activity } from "lucide-react";
-import type { PracticeStats, TimingGrade, PracticeMode } from "@/lib/practice-controller";
+import type { PracticeStats, TimingGrade, PracticeMode } from "@/hooks/use-practice";
 
 interface PracticeStatsProps {
   correctNotes: number;

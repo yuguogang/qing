@@ -10,8 +10,9 @@ import {
   DEFAULT_CONFIG,
 } from '@/lib/osmd-utils';
 import { applySpectrumColors, clearSpectrumColors } from '@/lib/spectrum-colors';
+import { eventBus } from '@/lib/event-bus';
 import type { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
-import type { TimingGrade } from '@/lib/practice-controller';
+import type { TimingGrade } from '@/hooks/use-practice';
 
 interface ScoreViewerProps {
   musicXml: string;
@@ -30,8 +31,6 @@ export default function ScoreViewer({
   anchorMode = true,
   spectrumMode = false,
   isPlaying = false,
-  currentCursorStep = 0,
-  totalCursorSteps = 0,
   lastGrade,
   onOsmdReady,
   zoom = 1,
@@ -42,6 +41,12 @@ export default function ScoreViewer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showGrade, setShowGrade] = useState(false);
+
+  // EventBus 驱动的状态（替代 props 轮询）
+  const [playbackActive, setPlaybackActive] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [totalSteps, setTotalSteps] = useState(0);
   const hasAppliedAnchorRef = useRef(false);
   const hasAppliedSpectrumRef = useRef(false);
   const loadSuccessRef = useRef(false);
@@ -50,12 +55,12 @@ export default function ScoreViewer({
 
   // 判定动画
   useEffect(() => {
-    if (lastGrade && isPlaying) {
+    if (lastGrade && (isPlaying || playbackActive)) {
       setShowGrade(true);
       const timer = setTimeout(() => setShowGrade(false), 800);
       return () => clearTimeout(timer);
     }
-  }, [lastGrade, isPlaying]);
+  }, [lastGrade, isPlaying, playbackActive]);
 
   // 初始化 OSMD
   useEffect(() => {
@@ -216,9 +221,31 @@ export default function ScoreViewer({
     return () => observer.disconnect();
   }, [musicXml]);
 
+  // 订阅 EventBus position-changed 更新进度
+  useEffect(() => {
+    const unsub = eventBus.on('position-changed', (payload) => {
+      setCurrentStep(payload.stepIndex);
+      setTotalSteps(payload.totalSteps);
+      setProgress(payload.progress);
+    });
+    return unsub;
+  }, []);
+
+  // 订阅 playback:state
+  useEffect(() => {
+    const unsub = eventBus.on('playback:state', (payload) => {
+      setPlaybackActive(payload.state === 'playing');
+      if (payload.state === 'stopped') {
+        setProgress(0);
+        setCurrentStep(0);
+      }
+    });
+    return unsub;
+  }, []);
+
   // 自动滚动：练习时保持当前音符居中
   const scrollToCursor = useCallback(() => {
-    if (!containerRef.current || !isPlaying) return;
+    if (!containerRef.current || !(isPlaying || playbackActive)) return;
     const container = containerRef.current;
 
     // OSMD 原生光标是容器内的 img 元素（id 为 cursorImg-0）
@@ -238,7 +265,7 @@ export default function ScoreViewer({
     if (!isPlaying) return;
     const interval = setInterval(scrollToCursor, 300);
     return () => clearInterval(interval);
-  }, [isPlaying, scrollToCursor]);
+  }, [isPlaying, playbackActive, scrollToCursor]);
 
   // 判定样式
   const gradeStyles = {
@@ -247,9 +274,9 @@ export default function ScoreViewer({
     miss: { bg: 'bg-red-400', text: 'text-red-600', label: '偏差' },
   };
 
-  const progressPercent = totalCursorSteps > 0
-    ? Math.min((currentCursorStep / totalCursorSteps) * 100, 100)
-    : 0;
+  const progressPercent = totalSteps > 0
+    ? Math.min((currentStep / totalSteps) * 100, 100)
+    : progress * 100;
 
   return (
     <div className="flex flex-col h-full relative">
@@ -267,9 +294,9 @@ export default function ScoreViewer({
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
-            <span className="text-xs text-muted-foreground">
-              {currentCursorStep}/{totalCursorSteps}
-            </span>
+              <span className="text-xs text-muted-foreground">
+              {currentStep}/{totalSteps}
+              </span>
           </div>
         </div>
       )}

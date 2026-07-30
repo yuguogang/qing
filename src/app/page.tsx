@@ -528,8 +528,6 @@ export default function Home() {
           anchorMode={anchorMode}
           spectrumMode={spectrumMode}
           isPlaying={practiceState.isPlaying}
-          currentCursorStep={practiceState.currentCursorStep}
-          totalCursorSteps={practiceState.totalCursorSteps}
           lastGrade={practiceState.lastGrade}
           onOsmdReady={handleOsmdReady}
           zoom={zoom}
