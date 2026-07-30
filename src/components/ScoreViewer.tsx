@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import {
   createOsmdInstance,
   loadAndRender,
@@ -243,29 +243,33 @@ export default function ScoreViewer({
     return unsub;
   }, []);
 
-  // 自动滚动：练习时保持当前音符居中
-  const scrollToCursor = useCallback(() => {
-    if (!containerRef.current || !(isPlaying || playbackActive)) return;
-    const container = containerRef.current;
-
-    // OSMD 原生光标是容器内的 img 元素（id 为 cursorImg-0）
-    const cursorEl = container.querySelector<HTMLImageElement>('#cursorImg-0, img[id^="cursorImg-"]');
-    if (cursorEl) {
-      const cursorRect = cursorEl.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      const scrollTop = container.scrollTop + cursorRect.top - containerRect.top - containerRect.height / 2;
-      container.scrollTo({
-        top: Math.max(0, scrollTop),
-        behavior: 'smooth',
-      });
-    }
-  }, [isPlaying]);
+  // 自动滚动：通过 position-changed 事件驱动，rAF 节流
+  const lastScrollRef = useRef(0);
 
   useEffect(() => {
-    if (!isPlaying) return;
-    const interval = setInterval(scrollToCursor, 300);
-    return () => clearInterval(interval);
-  }, [isPlaying, playbackActive, scrollToCursor]);
+    const unsub = eventBus.on('position-changed', () => {
+      const now = performance.now();
+      // 节流：最多每 250ms 滚动一次
+      if (now - lastScrollRef.current < 250) return;
+      lastScrollRef.current = now;
+
+      if (!containerRef.current || !(isPlaying || playbackActive)) return;
+      const container = containerRef.current;
+
+      // OSMD 原生光标是容器内的 img 元素（id 为 cursorImg-0）
+      const cursorEl = container.querySelector<HTMLImageElement>('#cursorImg-0, img[id^="cursorImg-"]');
+      if (cursorEl) {
+        const cursorRect = cursorEl.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const scrollTop = container.scrollTop + cursorRect.top - containerRect.top - containerRect.height / 2;
+        container.scrollTo({
+          top: Math.max(0, scrollTop),
+          behavior: 'smooth',
+        });
+      }
+    });
+    return unsub;
+  }, [isPlaying, playbackActive]);
 
   // 判定样式
   const gradeStyles = {

@@ -114,41 +114,6 @@ export class PianoAudioEngine {
   }
 
   // 播放音符序列（伴奏）
-  playSequence(notes: PianoNote[], bpm: number): void {
-    if (!this.audioContext) return;
-
-    this.stop();
-    this.isPlaying = true;
-    this.playStartTime = this.audioContext.currentTime;
-
-    // 计算时间缩放（基于 BPM）
-    const originalBpm = 80;
-    const timeScale = originalBpm / bpm;
-
-    notes.forEach((note) => {
-      const scaledStart = note.startTime * timeScale;
-      const scaledDuration = note.duration * timeScale;
-
-      const timeout = window.setTimeout(() => {
-        if (this.isPlaying) {
-          this.playNote(note.midi, scaledDuration, note.velocity);
-        }
-      }, scaledStart * 1000);
-
-      this.playTimeouts.push(timeout);
-    });
-
-    // 播放完成后自动停止
-    const lastNote = notes[notes.length - 1];
-    if (lastNote) {
-      const totalDuration = (lastNote.startTime + lastNote.duration) * timeScale * 1000;
-      const endTimeout = window.setTimeout(() => {
-        this.stop();
-      }, totalDuration);
-      this.playTimeouts.push(endTimeout);
-    }
-  }
-
   // 停止播放
   stop(): void {
     this.isPlaying = false;
